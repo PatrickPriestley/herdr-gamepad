@@ -6,6 +6,9 @@ mod engine_tests;
 mod herdr;
 #[cfg(test)]
 mod herdr_tests;
+mod config;
+#[cfg(test)]
+mod config_tests;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
