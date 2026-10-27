@@ -1,0 +1,45 @@
+# herd.gamepad: drive Herdr with an Xbox controller.
+# Design: docs/plans/2026-10-27-gamepad-design.md
+# Settings: $(herdr plugin config-dir herd.gamepad)/config.toml — whisper.model, whisper.language,
+# voice.button (rstick, lstick, menu), voice.max_seconds.
+
+id = "herd.gamepad"
+name = "Gamepad"
+version = "0.1.0"
+description = "Drive Herdr with an Xbox controller: focus panes, tabs and spaces, answer agents, hold a button to talk."
+min_herdr_version = "0.9.1"
+platforms = ["macos"]
+
+[[build]]
+platforms = ["macos"]
+command = ["/bin/sh", "scripts/build.sh"]
+
+[[panes]]
+id = "daemon"
+title = "Gamepad"
+placement = "tab"
+command = ["./bin/herd-gamepad", "serve"]
+
+[[panes]]
+id = "mapping"
+title = "Gamepad mapping"
+placement = "overlay"
+command = ["./bin/herd-gamepad", "mapping"]
+
+[[actions]]
+id = "start"
+title = "Gamepad: start"
+description = "Start listening to the controller in its own tab, unless already running."
+command = ["./bin/herd-gamepad", "ensure"]
+
+[[actions]]
+id = "setup"
+title = "Gamepad: set up voice"
+description = "Check whisper-cli and download the speech model."
+command = ["./bin/herd-gamepad", "setup"]
+
+[[actions]]
+id = "show-mapping"
+title = "Gamepad: show the mapping"
+description = "What each button does."
+command = ["./bin/herd-gamepad", "open-mapping"]
