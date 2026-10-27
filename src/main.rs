@@ -3,6 +3,9 @@
 mod engine;
 #[cfg(test)]
 mod engine_tests;
+mod herdr;
+#[cfg(test)]
+mod herdr_tests;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
