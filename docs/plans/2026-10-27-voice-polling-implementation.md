@@ -123,3 +123,27 @@ Run spec and quality reviews and the required different-model review. Build the 
 - `/tmp/voice-wait-mutants`: cargo-mutants output.
 
 No application source in the real repository was changed during plan verification.
+
+
+## Verified review correction: bounded event batches
+
+The first nonblocking implementation slept after every polled event, including events
+ignored by the plugin. Review reproduced 200 ignored events delaying a button by
+2.721 seconds; the real branch regression reproduced 2.776 seconds. The controller
+queue therefore must drain faster than one raw event per 10 ms.
+
+The final `next_inputs` accepts `FnMut() -> Option<Option<Input>>`: outer `None`
+means the queue is empty, while `Some(None)` means an ignored controller event.
+Each tick drains ready transcripts first, then at most 64 controller events in order,
+then sleeps once for 10 ms. The finite budget prevents continuous motion from
+starving voice or shutdown. The adapter preserves the distinction with `next_event().map`.
+
+Three new assertions failed before this correction: 200 ignored events plus a button
+must deliver within 250 ms, continuous ignored traffic must exhaust exactly the finite
+budget while delivering voice, and a mixed batch must preserve actionable button order.
+After correction, 142 Rust tests and the build pass. Cargo-mutants found two helper
+mutants: one caught and one unviable; no survivors. Ten manual scheduling mutations
+all fail assertions: remove/shorten/lengthen budget, remove empty-queue exit, mistake an
+ignored event for empty, drop button dispatch, remove throttle, remove voice drain,
+restore blocking polling, and reverse voice/button ordering. The continuous-stream test
+asserts at poll 65 so deleting the bound fails promptly instead of hanging the suite.

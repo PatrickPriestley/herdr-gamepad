@@ -165,7 +165,11 @@ fn a_continuous_ignored_event_stream_has_a_finite_tick_budget() {
     let (tx, rx) = std::sync::mpsc::channel();
     tx.send(Input::Transcript("first".into())).unwrap();
     let mut polls = 0;
-    let inputs = next_inputs(|| { polls += 1; Some(None) }, &rx);
+    let inputs = next_inputs(|| {
+        polls += 1;
+        assert!(polls <= 64, "an event flood must yield before the next tick");
+        Some(None)
+    }, &rx);
     assert_eq!(polls, 64, "drain a bounded batch, even when every event is ignored");
     assert_eq!(inputs, vec![Input::Transcript("first".into())]);
     tx.send(Input::Transcript("second".into())).unwrap();

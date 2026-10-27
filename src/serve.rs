@@ -75,11 +75,20 @@ pub fn serve() -> Result<(), String> {
     Ok(())
 }
 
-/// One daemon tick: controller polling and completed transcriptions.
+/// One daemon tick: completed voice, then at most 64 nonblocking controller events.
+/// The poll returns None for an empty queue, Some(None) for an ignored raw event.
 pub fn next_inputs(mut poll: impl FnMut() -> Option<Option<Input>>, rx: &mpsc::Receiver<Input>) -> Vec<Input> {
     // A finished transcript clears transcribing before a simultaneous new voice press.
     let mut inputs: Vec<Input> = rx.try_iter().collect();
-    inputs.extend(poll().flatten());
+    // An ignored axis event is still work in the controller queue. Drain a bounded
+    // batch rather than sleeping after each one; keep a flood from starving voice.
+    for _ in 0..64 {
+        match poll() {
+            Some(Some(input)) => inputs.push(input),
+            Some(None) => (),
+            None => break,
+        }
+    }
     // Keep the controller adapter nonblocking: gilrs's filtered blocking wait can reset
     // its timeout indefinitely under stick jitter, starving this channel and Stop.
     std::thread::sleep(Duration::from_millis(10));
