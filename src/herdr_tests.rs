@@ -1,6 +1,7 @@
 use crate::engine::*;
 use crate::herdr::*;
 use std::cell::RefCell;
+use std::time::{Duration, Instant};
 
 /// A Runner that answers each argv from a table and records what was asked.
 pub struct Fake { pub calls: RefCell<Vec<Vec<String>>>, pub answers: Vec<(&'static str, Result<&'static str, &'static str>)> }
@@ -15,7 +16,7 @@ impl Runner for Fake {
         let joined = argv.join(" ");
         self.calls.borrow_mut().push(argv.iter().map(|s| s.to_string()).collect());
         for (prefix, answer) in &self.answers {
-            if joined.starts_with(prefix) { return answer.map(String::from).map_err(String::from); }
+            if joined == *prefix || joined.starts_with(&format!("{prefix} ")) { return answer.map(String::from).map_err(String::from); }
         }
         Err(format!("fake: no answer for {joined}"))
     }
@@ -67,7 +68,7 @@ fn a_failed_command_fails_the_snapshot_with_its_stderr() {
     let mut f = fake();
     f.answers[1].1 = Err(r#"{"error":{"code":"server_unavailable","message":"no server"}}"#);
     let err = Herdr { runner: &f }.snapshot().unwrap_err();
-    assert!(err.contains("server_unavailable"), "{err}");
+    assert_eq!(err, "server_unavailable: no server");
 }
 
 #[test]
@@ -124,4 +125,83 @@ fn apply_runs_the_command_and_surfaces_the_error() {
     let f = Fake::new(vec![("herdr agent send-keys", Err("boom"))]);
     let err = Herdr { runner: &f }.apply(&Action::SendKeys { target: "w5:p2".into(), keys: vec![Key::Enter] }).unwrap_err();
     assert_eq!(err, "boom", "stderr that is not Herdr's JSON is passed through");
+}
+
+#[test]
+fn missing_result_objects_parse_to_nothing() {
+    let f = Fake::new(vec![
+        ("herdr pane current", Ok(r#"{"result":{}}"#)),
+        ("herdr workspace list", Ok(r#"{"result":{}}"#)),
+        ("herdr tab list", Ok(r#"{"result":{}}"#)),
+        ("herdr agent list", Ok(r#"{"result":{}}"#)),
+    ]);
+    let s = Herdr { runner: &f }.snapshot().unwrap();
+    assert_eq!(s.focused, None);
+    assert!(s.workspaces.is_empty(), "{:?}", s.workspaces);
+    assert!(s.tabs.is_empty(), "{:?}", s.tabs);
+    assert!(s.agents.is_empty(), "{:?}", s.agents);
+    assert_eq!(f.calls(), ["herdr pane current", "herdr workspace list", "herdr agent list"], "no focused pane, so no space to list tabs for");
+}
+
+#[test]
+fn an_error_without_a_code_is_passed_through_verbatim() {
+    let raw = r#"{"error":{"message":"x"}}"#;
+    let f = Fake::new(vec![("herdr agent send-keys", Err(raw))]);
+    let err = Herdr { runner: &f }.apply(&Action::SendKeys { target: "w5:p2".into(), keys: vec![Key::Enter] }).unwrap_err();
+    assert_eq!(err, raw);
+}
+
+#[test]
+fn hyphen_leading_text_is_passed_as_is_without_a_double_dash() {
+    // Probed herdr 0.9.1 on 2026-10-27: `agent prompt`, `pane send-text` and `notification show --body` take "- hi there" and "--wait" as text, and a `--` before the text fails with "unknown option".
+    for text in ["- hi there", "--wait"] {
+        let prompt = argv_for(&Action::Prompt { target: "w5:p1".into(), text: text.into() });
+        let send_text = argv_for(&Action::SendText { pane_id: "w5:p1".into(), text: text.into() });
+        let toast = argv_for(&toast("Sent", text, Sound::None));
+        assert_eq!(prompt.last().map(String::as_str), Some(text), "{prompt:?}");
+        assert_eq!(send_text.last().map(String::as_str), Some(text), "{send_text:?}");
+        assert_eq!(toast.iter().position(|a| a == "--body").map(|i| toast[i + 1].as_str()), Some(text), "{toast:?}");
+        for argv in [&prompt, &send_text, &toast] {
+            assert!(!argv.iter().any(|a| a == "--"), "{argv:?}");
+        }
+    }
+}
+
+// The real runner, exercised hermetically through /bin/sh.
+
+#[test]
+fn cli_returns_stdout_on_success() {
+    assert_eq!(Cli.run(&["sh", "-c", "echo hi"]), Ok("hi\n".to_string()));
+}
+
+#[test]
+fn cli_returns_stderr_on_failure() {
+    assert_eq!(Cli.run(&["sh", "-c", "echo bad >&2; exit 1"]), Err("bad".to_string()));
+}
+
+#[test]
+fn cli_reports_a_missing_binary() {
+    let err = Cli.run(&["/nonexistent/xyz"]).unwrap_err();
+    assert!(err.contains("xyz"), "{err}");
+}
+
+#[test]
+fn cli_falls_back_to_the_exit_status_when_stderr_is_empty() {
+    let err = Cli.run(&["sh", "-c", "exit 3"]).unwrap_err();
+    assert!(!err.is_empty() && err.contains("3"), "{err:?}");
+}
+
+#[test]
+fn cli_rejects_empty_argv() {
+    assert_eq!(Cli.run(&[]), Err("empty argv".to_string()));
+}
+
+#[test]
+fn cli_times_out() {
+    let started = Instant::now();
+    let err = run_with_timeout(&["sh", "-c", "sleep 5"], Duration::from_millis(200)).unwrap_err();
+    let took = started.elapsed();
+    assert!(err.contains("timed out"), "{err}");
+    assert!(took < Duration::from_secs(2), "took {took:?}");
+    eprintln!("cli_times_out took {took:?}");
 }

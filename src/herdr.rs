@@ -2,6 +2,10 @@
 
 use crate::engine::*;
 use serde_json::Value;
+use std::io::Read;
+use std::process::{Command, Stdio};
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 /// Runs a command; Ok(stdout) on exit 0, Err(stderr) otherwise. Faked in tests.
 pub trait Runner {
@@ -15,15 +19,59 @@ impl<R: Runner> Runner for &R {
 pub struct Cli;
 
 impl Runner for Cli {
-    fn run(&self, argv: &[&str]) -> Result<String, String> {
-        let out = std::process::Command::new(argv[0]).args(&argv[1..]).output()
-            .map_err(|e| format!("{}: {e}", argv[0]))?;
-        if out.status.success() {
-            Ok(String::from_utf8_lossy(&out.stdout).into_owned())
-        } else {
-            Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+    fn run(&self, argv: &[&str]) -> Result<String, String> { run_with_timeout(argv, Duration::from_secs(10)) }
+}
+
+/// Runs argv: Ok(stdout) on exit 0; Err(stderr, or the exit status when stderr is empty) otherwise.
+/// A command still running at the deadline is killed and reaped, so a wedged Herdr server cannot freeze the daemon.
+pub fn run_with_timeout(argv: &[&str], timeout: Duration) -> Result<String, String> {
+    let name = *argv.first().ok_or("empty argv")?;
+    let mut child = Command::new(name).args(&argv[1..])
+        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped())
+        .spawn().map_err(|e| format!("{name}: {e}"))?;
+    let stdout = drain(child.stdout.take());
+    let stderr = drain(child.stderr.take());
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
+            Ok(None) => {
+                reap(&mut child);
+                // The drain threads end when the pipes close, which killing the child does; they are not joined
+                // here because a grandchild that inherited a pipe could hold them open until it exits.
+                return Err(format!("{name}: timed out after {}s", timeout.as_secs()));
+            }
+            Err(e) => {
+                reap(&mut child);
+                return Err(format!("{name}: {e}"));
+            }
         }
+    };
+    let stdout = String::from_utf8_lossy(&stdout.join().unwrap_or_default()).into_owned();
+    let stderr = String::from_utf8_lossy(&stderr.join().unwrap_or_default()).trim().to_string();
+    if status.success() {
+        Ok(stdout)
+    } else if stderr.is_empty() {
+        Err(format!("{name}: {status}"))
+    } else {
+        Err(stderr)
     }
+}
+
+/// Kills and waits for a child so it cannot linger as a zombie.
+fn reap(child: &mut std::process::Child) {
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+/// Reads a pipe to its end on its own thread, so a full pipe can never block the child.
+fn drain<P: Read + Send + 'static>(pipe: Option<P>) -> JoinHandle<Vec<u8>> {
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut p) = pipe { let _ = p.read_to_end(&mut buf); }
+        buf
+    })
 }
 
 pub struct Herdr<R: Runner> { pub runner: R }
@@ -40,9 +88,24 @@ impl<R: Runner> Herdr<R> {
         Ok(Snapshot { focused, workspaces, tabs, agents })
     }
 
+    pub fn apply(&self, action: &Action) -> Result<(), String> {
+        let argv = argv_for(action);
+        if argv.is_empty() { return Ok(()); }
+        let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+        self.runner.run(&refs).map(|_| ()).map_err(|e| error_message(&e))
+    }
+
     fn json(&self, argv: &[&str]) -> Result<Value, String> {
-        let out = self.runner.run(argv)?;
-        serde_json::from_str(&out).map_err(|e| format!("{}: bad json: {e}", argv[1..].join(" ")))
+        let out = self.runner.run(argv).map_err(|e| error_message(&e))?;
+        serde_json::from_str(&out).map_err(|e| format!("{}: bad json: {e}", argv.get(1..).unwrap_or(&[]).join(" ")))
+    }
+}
+
+/// Herdr's JSON error as "code: message"; anything else as it came.
+fn error_message(stderr: &str) -> String {
+    match serde_json::from_str::<Value>(stderr) {
+        Ok(v) if v["error"]["code"].is_string() => format!("{}: {}", text(&v["error"], "code"), text(&v["error"], "message")),
+        _ => stderr.to_string(),
     }
 }
 
@@ -58,7 +121,9 @@ fn status(v: &Value) -> Option<Status> {
 
 fn text(v: &Value, key: &str) -> String { v[key].as_str().unwrap_or_default().to_string() }
 
-pub fn parse_pane(v: &Value) -> Option<Pane> {
+fn number(v: &Value) -> u32 { v.as_u64().and_then(|n| u32::try_from(n).ok()).unwrap_or(0) }
+
+fn parse_pane(v: &Value) -> Option<Pane> {
     let p = &v["result"]["pane"];
     if !p.is_object() { return None; }
     Some(Pane {
@@ -70,45 +135,28 @@ pub fn parse_pane(v: &Value) -> Option<Pane> {
     })
 }
 
-pub fn parse_workspaces(v: &Value) -> Vec<Workspace> {
+fn parse_workspaces(v: &Value) -> Vec<Workspace> {
     v["result"]["workspaces"].as_array().map(|a| a.iter().map(|w| Workspace {
         id: text(w, "workspace_id"),
-        number: w["number"].as_u64().unwrap_or(0) as u32,
+        number: number(&w["number"]),
         focused: w["focused"].as_bool().unwrap_or(false),
     }).collect()).unwrap_or_default()
 }
 
-pub fn parse_tabs(v: &Value) -> Vec<Tab> {
+fn parse_tabs(v: &Value) -> Vec<Tab> {
     v["result"]["tabs"].as_array().map(|a| a.iter().map(|t| Tab {
         id: text(t, "tab_id"),
-        number: t["number"].as_u64().unwrap_or(0) as u32,
+        number: number(&t["number"]),
         focused: t["focused"].as_bool().unwrap_or(false),
     }).collect()).unwrap_or_default()
 }
 
-pub fn parse_agents(v: &Value) -> Vec<Agent> {
+fn parse_agents(v: &Value) -> Vec<Agent> {
     v["result"]["agents"].as_array().map(|a| a.iter().map(|g| Agent {
         pane_id: text(g, "pane_id"),
         workspace_id: text(g, "workspace_id"),
         status: status(&g["agent_status"]).unwrap_or(Status::Unknown),
     }).collect()).unwrap_or_default()
-}
-
-impl<R: Runner> Herdr<R> {
-    pub fn apply(&self, action: &Action) -> Result<(), String> {
-        let argv = argv_for(action);
-        if argv.is_empty() { return Ok(()); }
-        let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
-        self.runner.run(&refs).map(|_| ()).map_err(|e| error_message(&e))
-    }
-}
-
-/// Herdr's JSON error as "code: message"; anything else as it came.
-fn error_message(stderr: &str) -> String {
-    match serde_json::from_str::<Value>(stderr) {
-        Ok(v) if v["error"]["code"].is_string() => format!("{}: {}", text(&v["error"], "code"), text(&v["error"], "message")),
-        _ => stderr.to_string(),
-    }
 }
 
 /// The herdr command for an action; empty for the recording actions, which serve handles itself.
