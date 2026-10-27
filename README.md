@@ -69,6 +69,7 @@ The card also shows your configured voice button.
 | Left / right trigger | LT / RT | L2 / R2 | Previous / next tab |
 | Back / Select | View | Create (PS5) / Share (PS4) | Return to Navigate |
 | Right stick click | Right stick click | R3 | Hold to dictate (default) |
+| Menu / Options | Menu | Options | Open close actions |
 
 D-pad moves between panes in Navigate, and between options in Respond. On a blocked
 agent, D-pad automatically enters Respond. Each confirmation requires acknowledgement
@@ -79,6 +80,16 @@ Release the voice button to transcribe and automatically submit to an idle, done
 working agent—no extra Enter or controller press is needed. If focus changed, the pane
 has no agent, or the agent is blocked at a dialog or in an unknown state, the transcript
 is not sent.
+
+To close a pane or space, press **Menu / Options** to show close actions. Press the
+**left face button (X / Square)** to select Close pane, or the **top face button
+(Y / Triangle)** to select Close space. The confirmation names the target; press the
+**bottom face button (A / Cross)** to confirm. **Right face (B / Circle)**,
+**Back / Select**, or the menu button cancels. Closing stops running processes in that
+pane or space; closing a space includes all its panes and tabs, not its workspace group.
+A focus change or controller disconnect cancels the pending action. Finish dictation
+before opening close actions. If `[voice] button = "menu"`, use **left stick click
+(L3)** to open/cancel close actions instead.
 
 To inspect a controller's events, run `herd-gamepad probe`; Ctrl-C stops it.
 

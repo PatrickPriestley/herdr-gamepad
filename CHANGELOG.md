@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add controller close-pane and close-space actions with explicit target confirmation and cancellation.
+
 - Submit dictation automatically to working agents as well as idle/done agents; no extra Enter press.
 
 - Run Gamepad as a Herdr background action with explicit Start and Stop controls.

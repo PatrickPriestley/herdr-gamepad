@@ -236,6 +236,15 @@ Back / Select          Return to Navigate
 Shoulders, triggers,
   top or left face     Navigate as above and leave Respond
 
+CLOSE ACTIONS
+Menu / Options opens close actions; if voice uses Menu, use left stick click.
+Left face button       Select close pane
+Top face button        Select close space
+Bottom face button     Confirm selected close
+Right face / Back      Cancel; pressing the menu button again also cancels
+Closing stops running processes in the pane or space. Focus changes cancel.
+Finish dictation before opening close actions.
+
 A D-pad press on a blocked agent auto-switches to Respond.
 Each confirmation needs acknowledgement first; follow the on-screen prompt.
 Button positions define the actions, even when your controller uses other labels.
