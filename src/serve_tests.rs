@@ -107,3 +107,38 @@ fn mapping_explains_close_selection_confirmation_and_voice_collision() {
         assert!(MAPPING.contains(text), "mapping is missing {text}");
     }
 }
+
+#[test]
+fn completed_transcript_does_not_need_a_controller_event() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    tx.send(Input::Transcript("ready".into())).unwrap();
+    let mut polled = 0;
+    let inputs = next_inputs(|| { polled += 1; None }, &rx);
+    assert_eq!(inputs, vec![Input::Transcript("ready".into())]);
+    assert_eq!(polled, 1);
+    // Paired with the real gilrs timing probe and channel tests above. The closure passed
+    // to next_inputs must not hide gilrs's unbounded filtered blocking wait.
+    let source = include_str!("serve.rs");
+    let daemon = source.split("/// Apply one input").next().unwrap();
+    assert!(daemon.contains("gilrs.next_event()"), "use gilrs nonblocking poll");
+    assert!(!daemon.contains("next_event_blocking"));
+}
+
+#[test]
+fn completed_transcript_precedes_a_new_recording_press() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    tx.send(Input::Transcript("ready".into())).unwrap();
+    assert_eq!(next_inputs(|| Some(Input::Press(Btn::RStick)), &rx),
+        vec![Input::Transcript("ready".into()), Input::Press(Btn::RStick)]);
+}
+
+#[test]
+fn an_idle_tick_is_throttled_and_poll_is_called_once() {
+    let (_tx, rx) = std::sync::mpsc::channel();
+    let mut calls = 0;
+    let start = std::time::Instant::now();
+    let inputs = next_inputs(|| { calls += 1; None }, &rx);
+    assert_eq!(calls, 1);
+    assert!(start.elapsed() >= std::time::Duration::from_millis(8), "idle polling must not spin");
+    assert!(inputs.is_empty());
+}

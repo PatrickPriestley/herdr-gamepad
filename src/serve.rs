@@ -29,11 +29,10 @@ pub fn serve() -> Result<(), String> {
     let (tx, rx) = mpsc::channel::<Input>();
     crate::logging::event(format_args!("herd-gamepad: listening; {} controller(s) connected; hold {} to talk", gilrs.gamepads().count(), cfg.voice_button.label()));
     while !cancellation.cancelled() {
-        let mut inputs = vec![];
-        if let Some(ev) = gilrs.next_event_blocking(Some(Duration::from_millis(100))) {
-            if let Some(i) = pad::raw(&ev.event).and_then(|r| pad.input(r)) { inputs.push(i); }
-        }
-        inputs.extend(rx.try_iter());
+        let inputs = next_inputs(|| {
+            gilrs.next_event_blocking(Some(Duration::from_millis(100)))
+                .and_then(|ev| pad::raw(&ev.event)).and_then(|r| pad.input(r))
+        }, &rx);
         for mut input in inputs {
             if cancellation.cancelled() { break; }
             let snap = match needs_snapshot(&input, cfg.voice_button).then(|| herdr.snapshot()) {
@@ -74,6 +73,13 @@ pub fn serve() -> Result<(), String> {
     drop(worker); // Join/cancel transcription before acknowledging Stop by releasing daemon's lock.
     crate::logging::event(format_args!("herd-gamepad: stopped"));
     Ok(())
+}
+
+/// One daemon tick: controller polling and completed transcriptions.
+pub fn next_inputs(poll: impl FnOnce() -> Option<Input>, rx: &mpsc::Receiver<Input>) -> Vec<Input> {
+    let mut inputs: Vec<Input> = poll().into_iter().collect();
+    inputs.extend(rx.try_iter());
+    inputs
 }
 
 /// Apply one input's actions, delegating hardware recording to the daemon.
