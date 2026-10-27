@@ -240,7 +240,9 @@ fn dpad_on_a_blocked_agent_switches_to_respond_and_sends_the_key() {
         toast("Respond mode", "the agent is waiting for you", Sound::Request),
         Action::SendKeys { target: "w5:p1".into(), keys: vec![Key::Down] },
     ]);
-    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), keys("w5:p1", Key::Enter), "the D-pad press acknowledged the dialog");
+    // The press that switched modes was aimed at moving focus, not at the dialog: it is no acknowledgement.
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("The agent is waiting", "press A again to confirm", Sound::Request)]);
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), keys("w5:p1", Key::Enter));
 }
 
 #[test]
@@ -249,7 +251,7 @@ fn a_on_a_blocked_agent_only_enters_respond_mode() {
     let mut c = core();
     let out = c.handle(Input::Press(Btn::A), &blocked());
     assert_eq!(c.mode(), Mode::Respond);
-    assert!(!out.iter().any(|a| matches!(a, Action::SendKeys { .. })), "{out:?}");
+    assert_eq!(out, vec![toast("Respond mode", "agent waiting; A again confirms", Sound::Request)]);
     assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), keys("w5:p1", Key::Enter), "the second A confirms");
 }
 
@@ -395,7 +397,7 @@ fn respond_leaves_when_focus_moves_to_another_pane() {
     let s = Snapshot { focused: Some(pane("w5:p2", Some("claude"), Some(Status::Blocked))), ..snap() };
     assert_eq!(c.handle(Input::Press(Btn::A), &s), focus_moved());
     assert_eq!(c.mode(), Mode::Navigate);
-    assert_eq!(c.handle(Input::Press(Btn::A), &s), vec![toast("Respond mode", "D-pad moves, A enters, B escapes, View leaves", Sound::None)], "A in Navigate enters Respond on the new pane without sending Enter");
+    assert_eq!(c.handle(Input::Press(Btn::A), &s), vec![toast("Respond mode", "agent waiting; A again confirms", Sound::Request)], "A in Navigate enters Respond on the new pane without sending Enter");
 }
 
 #[test]
@@ -447,14 +449,54 @@ fn b_on_a_fresh_dialog_is_sent_and_counts_as_the_acknowledgement() {
 }
 
 #[test]
-fn consecutive_a_presses_on_an_acknowledged_dialog_each_send_enter() {
-    // Accepted limit: a multi-step dialog (say, two questions in a row) that stays `blocked` throughout cannot be
-    // told apart from one dialog, so once acknowledged every A sends Enter until the status changes.
+fn consecutive_a_presses_on_an_acknowledged_dialog_alternate_between_enter_and_a_swallow() {
+    // The core cannot see status changes between presses, so a second dialog that follows the first in a quiet
+    // gap looks like the first; every Enter therefore needs its own acknowledging press.
+    let mut c = in_respond();
+    assert_eq!(c.handle(Input::Press(Btn::Down), &blocked()), keys("w5:p1", Key::Down));
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), keys("w5:p1", Key::Enter));
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("The agent is waiting", "press A again to confirm", Sound::Request)]);
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), keys("w5:p1", Key::Enter));
+}
+
+#[test]
+fn an_enter_after_a_dpad_acknowledgement_spends_it() {
     let mut c = in_respond();
     c.handle(Input::Press(Btn::Down), &blocked());
-    for _ in 0..3 {
-        assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), keys("w5:p1", Key::Enter));
-    }
+    c.handle(Input::Press(Btn::A), &blocked());
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("The agent is waiting", "press A again to confirm", Sound::Request)], "nothing was pressed since the Enter");
+}
+
+#[test]
+fn an_enter_after_entering_on_a_blocked_pane_spends_the_acknowledgement() {
+    let mut c = core();
+    c.handle(Input::Press(Btn::A), &blocked());
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), keys("w5:p1", Key::Enter));
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("The agent is waiting", "press A again to confirm", Sound::Request)]);
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), keys("w5:p1", Key::Enter));
+}
+
+#[test]
+fn disconnecting_leaves_respond_and_forgets_the_acknowledgement() {
+    let mut c = in_respond();
+    assert_eq!(c.handle(Input::Press(Btn::Down), &blocked()), keys("w5:p1", Key::Down));
+    assert_eq!(c.handle(Input::Disconnected, &blocked()), vec![toast("Controller disconnected", "", Sound::None)]);
+    assert_eq!(c.mode(), Mode::Navigate);
+    assert_eq!(c.handle(Input::Connected, &blocked()), vec![toast("Controller connected", "", Sound::None)]);
+    assert_eq!(c.mode(), Mode::Navigate);
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("Respond mode", "agent waiting; A again confirms", Sound::Request)]);
+    assert_eq!(c.mode(), Mode::Respond);
+}
+
+#[test]
+fn disconnecting_while_recording_in_respond_cancels_and_leaves() {
+    let mut c = in_respond();
+    c.handle(Input::Press(Btn::RStick), &snap());
+    assert_eq!(c.handle(Input::Disconnected, &snap()), vec![
+        Action::CancelRecording,
+        toast("Controller disconnected", "recording discarded", Sound::Request),
+    ]);
+    assert_eq!(c.mode(), Mode::Navigate);
 }
 
 #[test]
@@ -559,4 +601,13 @@ fn a_transcript_target_is_used_once() {
     spoke(&mut c, &snap());
     c.handle(Input::TranscriptFailed("x".into()), &snap());
     assert_eq!(c.handle(Input::Transcript("two".into()), &snap()), vec![toast("Not sent", "nothing was focused when you spoke: two", Sound::Request)]);
+}
+
+#[test]
+fn the_auto_switch_sends_every_direction() {
+    for (b, key) in [(Btn::Up, Key::Up), (Btn::Down, Key::Down), (Btn::Left, Key::Left), (Btn::Right, Key::Right)] {
+        let mut c = core();
+        let out = c.handle(Input::Press(b), &blocked());
+        assert_eq!(out[1], Action::SendKeys { target: "w5:p1".into(), keys: vec![key] }, "{b:?}");
+    }
 }

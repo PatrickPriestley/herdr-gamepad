@@ -100,6 +100,8 @@ impl Core {
             Input::Release(_) => vec![],
             Input::Connected => vec![toast("Controller connected", "", Sound::None)],
             Input::Disconnected => {
+                // Whatever was acknowledged on the old controller does not carry over to the next one.
+                self.enter_navigate();
                 if !self.recording { return vec![toast("Controller disconnected", "", Sound::None)]; }
                 self.recording = false;
                 vec![Action::CancelRecording, toast("Controller disconnected", "recording discarded", Sound::Request)]
@@ -133,11 +135,13 @@ impl Core {
         if let Some(actions) = nav { return self.leave_respond(actions); }
         let blocked = agent_pane.is_some_and(|p| p.status == Some(Status::Blocked));
         if self.mode == Mode::Navigate && blocked && matches!(b, Btn::Up | Btn::Down | Btn::Left | Btn::Right) {
-            // The D-pad press is the acknowledgement of this dialog; A may answer it next.
-            self.enter_respond(agent_pane, true);
-            let mut out = vec![toast("Respond mode", "the agent is waiting for you", Sound::Request)];
-            out.extend(self.respond(b, snap));
-            return out;
+            // The press was aimed at moving focus, not at the dialog: the arrow goes through but is no
+            // acknowledgement, so the next A is swallowed once. `respond` is bypassed because it would count it.
+            self.enter_respond(agent_pane, false);
+            return vec![
+                toast("Respond mode", "the agent is waiting for you", Sound::Request),
+                Action::SendKeys { target: agent_pane.map(|p| p.pane_id.clone()).unwrap_or_default(), keys: vec![key_of(b)] },
+            ];
         }
         match self.mode {
             Mode::Navigate => match b {
@@ -148,7 +152,8 @@ impl Core {
                     Some(_) => {
                         // Entering on a blocked agent is the acknowledgement; the next A confirms.
                         self.enter_respond(agent_pane, blocked);
-                        vec![toast("Respond mode", "D-pad moves, A enters, B escapes, View leaves", Sound::None)]
+                        if blocked { vec![toast("Respond mode", "agent waiting; A again confirms", Sound::Request)] }
+                        else { vec![toast("Respond mode", "D-pad moves, A enters, B escapes, View leaves", Sound::None)] }
                     }
                     None => vec![toast("No agent here", "focus a pane with an agent first", Sound::None)],
                 },
@@ -194,23 +199,33 @@ impl Core {
             self.enter_navigate();
             return vec![toast("Navigate mode", "no agent in the focused pane", Sound::None)];
         };
-        let key = match b {
-            Btn::Up => Key::Up, Btn::Down => Key::Down, Btn::Left => Key::Left, Btn::Right => Key::Right,
-            Btn::A => Key::Enter, Btn::B => Key::Esc,
-            _ => return vec![],
-        };
-        // Every dialog needs two presses: the first key pressed while the agent is Blocked acknowledges it, and
-        // only an acknowledged dialog can be answered with Enter. A status change (the dialog was answered, the
-        // agent worked on) resets the acknowledgement so the next dialog needs its own. Accepted limit: a
-        // multi-step dialog that stays Blocked throughout counts as one, so each later A sends Enter.
-        if p.status != Some(Status::Blocked) {
-            self.acknowledged_block = false;
-        } else if !self.acknowledged_block {
+        let Some(key) = key_for(b) else { return vec![] };
+        // Every Enter needs its own acknowledgement: a key pressed while the agent is Blocked (an arrow, Esc, or
+        // a swallowed A) acknowledges the dialog, and the Enter that answers it spends the acknowledgement. The
+        // core cannot see the status change between two presses, so a second dialog that follows the first in a
+        // quiet gap must not be confirmed by the acknowledgement of the first.
+        let blocked_now = p.status == Some(Status::Blocked);
+        if blocked_now && !self.acknowledged_block && key == Key::Enter {
             self.acknowledged_block = true;
-            if key == Key::Enter { return vec![toast("The agent is waiting", "press A again to confirm", Sound::Request)]; }
+            return vec![toast("The agent is waiting", "press A again to confirm", Sound::Request)];
         }
+        self.acknowledged_block = blocked_now && key != Key::Enter;
         vec![Action::SendKeys { target: p.pane_id.clone(), keys: vec![key] }]
     }
+}
+
+/// The key a button sends in Respond; None for the buttons that send nothing.
+fn key_for(b: Btn) -> Option<Key> {
+    Some(match b {
+        Btn::Up => Key::Up, Btn::Down => Key::Down, Btn::Left => Key::Left, Btn::Right => Key::Right,
+        Btn::A => Key::Enter, Btn::B => Key::Esc,
+        _ => return None,
+    })
+}
+
+/// The key a D-pad button sends.
+fn key_of(b: Btn) -> Key {
+    match b { Btn::Up => Key::Up, Btn::Down => Key::Down, Btn::Left => Key::Left, _ => Key::Right }
 }
 
 fn dir_of(b: Btn) -> Dir {
