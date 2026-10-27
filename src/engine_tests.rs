@@ -299,11 +299,11 @@ fn transcript_to_an_idle_or_done_agent_is_submitted() {
 }
 
 #[test]
-fn transcript_to_a_working_agent_is_typed_but_not_sent() {
+fn transcript_to_a_working_agent_is_submitted() {
     let s = Snapshot { focused: Some(pane("w5:p1", Some("claude"), Some(Status::Working))), ..snap() };
     assert_eq!(said("  also check lint  ", &s), vec![
-        Action::SendText { pane_id: "w5:p1".into(), text: "also check lint".into() },
-        toast("Typed, not sent", "agent is working: also check lint", Sound::None),
+        Action::Prompt { target: "w5:p1".into(), text: "also check lint".into() },
+        toast("Sent", "also check lint", Sound::None),
     ]);
 }
 
@@ -610,4 +610,19 @@ fn the_auto_switch_sends_every_direction() {
         let out = c.handle(Input::Press(b), &blocked());
         assert_eq!(out[1], Action::SendKeys { target: "w5:p1".into(), keys: vec![key] }, "{b:?}");
     }
+}
+
+#[test]
+fn controller_button_labels_are_physical_and_distinct() {
+    let cases = [
+        (Btn::A, "bottom face button"), (Btn::B, "right face button"),
+        (Btn::X, "left face button"), (Btn::Y, "top face button"),
+        (Btn::Lb, "left shoulder"), (Btn::Rb, "right shoulder"),
+        (Btn::Lt, "left trigger"), (Btn::Rt, "right trigger"),
+        (Btn::View, "Back / Select"), (Btn::Menu, "Menu / Options"),
+        (Btn::Up, "D-pad up"), (Btn::Down, "D-pad down"),
+        (Btn::Left, "D-pad left"), (Btn::Right, "D-pad right"),
+        (Btn::LStick, "left stick click"), (Btn::RStick, "right stick click"),
+    ];
+    for (button, label) in cases { assert_eq!(button.label(), label); }
 }

@@ -103,7 +103,6 @@ fn each_action_is_one_herdr_command() {
         (Action::SendKeys { target: "w5:p1".into(), keys: vec![Key::Esc] }, "herdr agent send-keys w5:p1 esc"),
         (Action::SendKeys { target: "w5:p1".into(), keys: vec![Key::Left, Key::Right, Key::Down] }, "herdr agent send-keys w5:p1 left right down"),
         (Action::Prompt { target: "w5:p1".into(), text: "run the tests".into() }, "herdr agent prompt w5:p1 run the tests"),
-        (Action::SendText { pane_id: "w5:p1".into(), text: "also lint".into() }, "herdr pane send-text w5:p1 also lint"),
         (toast("Sent", "run the tests", Sound::None), "herdr notification show Sent --body run the tests --sound none"),
         (toast("Not sent", "x", Sound::Request), "herdr notification show Not sent --body x --sound request"),
         (toast("Navigate mode", "", Sound::Done), "herdr notification show Navigate mode --sound done"),
@@ -168,12 +167,10 @@ fn hyphen_leading_text_is_passed_as_is_without_a_double_dash() {
     // Probed herdr 0.9.1 on 2026-10-27: `agent prompt`, `pane send-text` and `notification show --body` take "- hi there" and "--wait" as text, and a `--` before the text fails with "unknown option".
     for text in ["- hi there", "--wait"] {
         let prompt = argv_for(&Action::Prompt { target: "w5:p1".into(), text: text.into() });
-        let send_text = argv_for(&Action::SendText { pane_id: "w5:p1".into(), text: text.into() });
         let toast = argv_for(&toast("Sent", text, Sound::None));
         assert_eq!(prompt.last().map(String::as_str), Some(text), "{prompt:?}");
-        assert_eq!(send_text.last().map(String::as_str), Some(text), "{send_text:?}");
         assert_eq!(toast.iter().position(|a| a == "--body").map(|i| toast[i + 1].as_str()), Some(text), "{toast:?}");
-        for argv in [&prompt, &send_text, &toast] {
+        for argv in [&prompt, &toast] {
             assert!(!argv.iter().any(|a| a == "--"), "{argv:?}");
         }
     }

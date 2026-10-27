@@ -85,7 +85,7 @@ pub fn apply_actions(herdr: &Herdr<impl Runner>, actions: Vec<Action>, mut recor
                 crate::logging::event(format_args!("herd-gamepad: {other:?}: {e}"));
                 let _ = herdr.apply(&toast("Herdr refused", &e, Sound::Request));
                 // The remaining transcript action announces successful delivery.
-                if matches!(other, Action::Prompt { .. } | Action::SendText { .. }) { break; }
+                if matches!(other, Action::Prompt { .. }) { break; }
             },
         }
     }
@@ -199,7 +199,7 @@ pub fn setup() -> Result<(), String> {
 pub fn mapping() -> Result<(), String> {
     let (cfg, _) = crate::config::load()?;
     print!("{MAPPING}\nHold {} to talk; release to transcribe.\n", cfg.voice_button.label());
-    println!("Idle/done: sent. Working: typed without Enter. Blocked/unknown/no agent: dropped.");
+    println!("Idle/done/working: submitted automatically. Blocked/unknown/no agent: dropped.");
     println!("\nPress Enter to close.");
     let _ = std::io::stdin().read_line(&mut String::new());
     Ok(())
