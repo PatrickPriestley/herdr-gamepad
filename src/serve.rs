@@ -31,7 +31,7 @@ pub fn serve() -> Result<(), String> {
     while !cancellation.cancelled() {
         let inputs = next_inputs(|| {
             gilrs.next_event()
-                .and_then(|ev| pad::raw(&ev.event)).and_then(|r| pad.input(r))
+                .map(|ev| pad::raw(&ev.event).and_then(|r| pad.input(r)))
         }, &rx);
         for mut input in inputs {
             if cancellation.cancelled() { break; }
@@ -76,10 +76,10 @@ pub fn serve() -> Result<(), String> {
 }
 
 /// One daemon tick: controller polling and completed transcriptions.
-pub fn next_inputs(poll: impl FnOnce() -> Option<Input>, rx: &mpsc::Receiver<Input>) -> Vec<Input> {
+pub fn next_inputs(mut poll: impl FnMut() -> Option<Option<Input>>, rx: &mpsc::Receiver<Input>) -> Vec<Input> {
     // A finished transcript clears transcribing before a simultaneous new voice press.
     let mut inputs: Vec<Input> = rx.try_iter().collect();
-    inputs.extend(poll());
+    inputs.extend(poll().flatten());
     // Keep the controller adapter nonblocking: gilrs's filtered blocking wait can reset
     // its timeout indefinitely under stick jitter, starving this channel and Stop.
     std::thread::sleep(Duration::from_millis(10));

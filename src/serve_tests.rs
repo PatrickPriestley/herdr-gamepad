@@ -128,7 +128,8 @@ fn completed_transcript_does_not_need_a_controller_event() {
 fn completed_transcript_precedes_a_new_recording_press() {
     let (tx, rx) = std::sync::mpsc::channel();
     tx.send(Input::Transcript("ready".into())).unwrap();
-    assert_eq!(next_inputs(|| Some(Input::Press(Btn::RStick)), &rx),
+    let mut events = [Some(Input::Press(Btn::RStick))].into_iter();
+    assert_eq!(next_inputs(|| events.next(), &rx),
         vec![Input::Transcript("ready".into()), Input::Press(Btn::RStick)]);
 }
 
@@ -141,4 +142,43 @@ fn an_idle_tick_is_throttled_and_poll_is_called_once() {
     assert_eq!(calls, 1);
     assert!(start.elapsed() >= std::time::Duration::from_millis(8), "idle polling must not spin");
     assert!(inputs.is_empty());
+}
+
+#[test]
+fn ignored_controller_motion_does_not_queue_seconds_of_button_lag() {
+    let (_tx, rx) = std::sync::mpsc::channel();
+    let mut events = std::iter::repeat_with(|| None).take(200)
+        .chain(std::iter::once(Some(Input::Press(Btn::A))));
+    let started = std::time::Instant::now();
+    let mut inputs = vec![];
+    for _ in 0..201 {
+        inputs.extend(next_inputs(|| events.next(), &rx));
+        if !inputs.is_empty() { break; }
+    }
+    assert_eq!(inputs, vec![Input::Press(Btn::A)]);
+    assert!(started.elapsed() < std::time::Duration::from_millis(250),
+        "200 ignored events delayed the button by {:?}", started.elapsed());
+}
+
+#[test]
+fn a_continuous_ignored_event_stream_has_a_finite_tick_budget() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    tx.send(Input::Transcript("first".into())).unwrap();
+    let mut polls = 0;
+    let inputs = next_inputs(|| { polls += 1; Some(None) }, &rx);
+    assert_eq!(polls, 64, "drain a bounded batch, even when every event is ignored");
+    assert_eq!(inputs, vec![Input::Transcript("first".into())]);
+    tx.send(Input::Transcript("second".into())).unwrap();
+    let inputs = next_inputs(|| Some(None), &rx);
+    assert_eq!(inputs, vec![Input::Transcript("second".into())]);
+}
+
+#[test]
+fn a_tick_keeps_button_order_after_ready_voice_results() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    tx.send(Input::Transcript("ready".into())).unwrap();
+    let mut events = [None, Some(Input::Press(Btn::RStick)), None,
+        Some(Input::Release(Btn::RStick)), Some(Input::Press(Btn::A))].into_iter();
+    assert_eq!(next_inputs(|| events.next(), &rx), vec![Input::Transcript("ready".into()),
+        Input::Press(Btn::RStick), Input::Release(Btn::RStick), Input::Press(Btn::A)]);
 }
