@@ -38,7 +38,7 @@ fn check_transcript_feedback(status: Status) {
         core.handle(Input::Press(Btn::RStick), &snap);
         core.handle(Input::Release(Btn::RStick), &snap);
         let actions = core.handle(Input::Transcript("hello".into()), &snap);
-        let command = if status == Status::Idle { "herdr agent prompt" } else { "herdr pane send-text" };
+        let command = "herdr agent prompt";
         let fake = Fake::new(vec![
             (command, if succeeds { Ok("") } else { Err("delivery failed") }),
             ("herdr notification show", Ok("")),
@@ -47,7 +47,7 @@ fn check_transcript_feedback(status: Status) {
         let calls = fake.calls();
         assert_eq!(calls.len(), 2, "one delivery and exactly one outcome: {calls:?}");
         assert_eq!(calls[0], format!("{command} w5:p1 hello"));
-        let outcome = if !succeeds { "Herdr refused" } else if status == Status::Idle { "Sent" } else { "Typed, not sent" };
+        let outcome = if !succeeds { "Herdr refused" } else { "Sent" };
         assert!(calls[1].starts_with(&format!("herdr notification show {outcome} --body ")), "{calls:?}");
     }
 }
@@ -56,7 +56,7 @@ fn check_transcript_feedback(status: Status) {
 fn prompt_delivery_feedback_tracks_the_command_result() { check_transcript_feedback(Status::Idle); }
 
 #[test]
-fn typed_delivery_feedback_tracks_the_command_result() { check_transcript_feedback(Status::Working); }
+fn working_prompt_delivery_feedback_tracks_the_command_result() { check_transcript_feedback(Status::Working); }
 
 #[test]
 fn a_failed_mode_toast_does_not_discard_the_key_press() {

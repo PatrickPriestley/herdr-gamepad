@@ -209,7 +209,6 @@ pub fn argv_for(a: &Action) -> Vec<String> {
             v
         }
         Action::Prompt { target, text } => s(&["herdr", "agent", "prompt", target, text]),
-        Action::SendText { pane_id, text } => s(&["herdr", "pane", "send-text", pane_id, text]),
         Action::Toast { title, body, sound } => {
             let mut v = s(&["herdr", "notification", "show", title]);
             if !body.is_empty() { v.extend(s(&["--body", body])); }

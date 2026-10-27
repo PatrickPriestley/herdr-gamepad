@@ -75,6 +75,11 @@ agent, D-pad automatically enters Respond. Each confirmation requires acknowledg
 first; follow the on-screen prompt. Face-button positions always determine actions,
 even on controllers with different lettering.
 
+Release the voice button to transcribe and automatically submit to an idle, done, or
+working agent—no extra Enter or controller press is needed. If focus changed, the pane
+has no agent, or the agent is blocked at a dialog or in an unknown state, the transcript
+is not sent.
+
 To inspect a controller's events, run `herd-gamepad probe`; Ctrl-C stops it.
 
 ## Settings
