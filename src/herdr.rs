@@ -93,3 +93,58 @@ pub fn parse_agents(v: &Value) -> Vec<Agent> {
         status: status(&g["agent_status"]).unwrap_or(Status::Unknown),
     }).collect()).unwrap_or_default()
 }
+
+impl<R: Runner> Herdr<R> {
+    pub fn apply(&self, action: &Action) -> Result<(), String> {
+        let argv = argv_for(action);
+        if argv.is_empty() { return Ok(()); }
+        let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+        self.runner.run(&refs).map(|_| ()).map_err(|e| error_message(&e))
+    }
+}
+
+/// Herdr's JSON error as "code: message"; anything else as it came.
+fn error_message(stderr: &str) -> String {
+    match serde_json::from_str::<Value>(stderr) {
+        Ok(v) if v["error"]["code"].is_string() => format!("{}: {}", text(&v["error"], "code"), text(&v["error"], "message")),
+        _ => stderr.to_string(),
+    }
+}
+
+/// The herdr command for an action; empty for the recording actions, which serve handles itself.
+pub fn argv_for(a: &Action) -> Vec<String> {
+    let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+    match a {
+        Action::FocusWorkspace(id) => s(&["herdr", "workspace", "focus", id]),
+        Action::FocusTab(id) => s(&["herdr", "tab", "focus", id]),
+        Action::FocusDirection { pane_id, dir } => s(&["herdr", "pane", "focus", "--direction", dir_name(*dir), "--pane", pane_id]),
+        Action::FocusAgent(target) => s(&["herdr", "agent", "focus", target]),
+        Action::ToggleZoom(pane_id) => s(&["herdr", "pane", "zoom", "--pane", pane_id, "--toggle"]),
+        Action::SendKeys { target, keys } => {
+            let mut v = s(&["herdr", "agent", "send-keys", target]);
+            v.extend(keys.iter().map(|k| key_name(*k).to_string()));
+            v
+        }
+        Action::Prompt { target, text } => s(&["herdr", "agent", "prompt", target, text]),
+        Action::SendText { pane_id, text } => s(&["herdr", "pane", "send-text", pane_id, text]),
+        Action::Toast { title, body, sound } => {
+            let mut v = s(&["herdr", "notification", "show", title]);
+            if !body.is_empty() { v.extend(s(&["--body", body])); }
+            v.extend(s(&["--sound", sound_name(*sound)]));
+            v
+        }
+        Action::StartRecording | Action::StopRecording => vec![],
+    }
+}
+
+fn dir_name(d: Dir) -> &'static str {
+    match d { Dir::Left => "left", Dir::Right => "right", Dir::Up => "up", Dir::Down => "down" }
+}
+
+fn key_name(k: Key) -> &'static str {
+    match k { Key::Up => "up", Key::Down => "down", Key::Left => "left", Key::Right => "right", Key::Enter => "enter", Key::Esc => "esc" }
+}
+
+fn sound_name(s: Sound) -> &'static str {
+    match s { Sound::None => "none", Sound::Done => "done", Sound::Request => "request" }
+}
