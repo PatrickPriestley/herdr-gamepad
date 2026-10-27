@@ -1,8 +1,8 @@
 //! herd-gamepad: drive Herdr with an Xbox controller.
 
-mod core;
+mod engine;
 #[cfg(test)]
-mod core_tests;
+mod engine_tests;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();

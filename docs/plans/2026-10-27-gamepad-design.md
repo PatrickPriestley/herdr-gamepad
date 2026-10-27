@@ -50,7 +50,7 @@ Navigate (default):
 | D-pad | focus the pane in that direction |
 | LB / RB | previous / next space, wrapping, by sidebar number |
 | LT / RT | previous / next tab of the current space, wrapping |
-| Y | focus the next agent that needs you: the first `blocked` after the focused pane, else the first `done`; a toast when there is none |
+| Y | focus the next agent that needs you: the first `blocked` after the focused pane, in sidebar order (space number, then Herdr's listing order), else the first `done`; a toast when there is none |
 | X | toggle zoom on the focused pane |
 | A | enter Respond mode (a toast if the pane holds no agent) |
 | B, Menu | nothing in v1 |

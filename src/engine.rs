@@ -36,7 +36,7 @@ pub enum Dir { Left, Right, Up, Down }
 pub enum Key { Up, Down, Left, Right, Enter, Esc }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(not(test), allow(dead_code))] // Done is used by tests only until a sound is chosen for it
+#[cfg_attr(not(test), allow(dead_code))] // Done is not yet used by a toast; the herdr tests map it.
 pub enum Sound { None, Done, Request }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -58,22 +58,22 @@ pub fn toast(title: &str, body: &str, sound: Sound) -> Action {
     Action::Toast { title: title.into(), body: body.into(), sound }
 }
 
-pub struct Core { mode: Mode, recording: bool, voice: Btn }
+pub struct Core { mode: Mode, recording: bool, voice_button: Btn }
 
 impl Core {
-    pub fn new(voice: Btn) -> Self { Core { mode: Mode::Navigate, recording: false, voice } }
+    pub fn new(voice_button: Btn) -> Self { Core { mode: Mode::Navigate, recording: false, voice_button } }
     pub fn mode(&self) -> Mode { self.mode }
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn recording(&self) -> bool { self.recording }
 
     pub fn handle(&mut self, input: Input, snap: &Snapshot) -> Vec<Action> {
         match input {
-            Input::Press(b) if b == self.voice => {
+            Input::Press(b) if b == self.voice_button => {
                 if self.recording { return vec![]; }
                 self.recording = true;
                 vec![Action::StartRecording]
             }
-            Input::Release(b) if b == self.voice => {
+            Input::Release(b) if b == self.voice_button => {
                 if !self.recording { return vec![]; }
                 self.recording = false;
                 vec![Action::StopRecording]
@@ -100,7 +100,7 @@ impl Core {
             _ => None,
         };
         if let Some(actions) = nav { return self.leave_respond(actions); }
-        let blocked = agent_pane.map_or(false, |p| p.status == Some(Status::Blocked));
+        let blocked = agent_pane.is_some_and(|p| p.status == Some(Status::Blocked));
         if self.mode == Mode::Navigate && blocked && matches!(b, Btn::Up | Btn::Down | Btn::Left | Btn::Right) {
             self.mode = Mode::Respond;
             let mut out = vec![toast("Respond mode", "the agent is waiting for you", Sound::None)];
@@ -176,12 +176,12 @@ fn step(len: usize, current: Option<usize>, delta: i32) -> Option<usize> {
     Some((i + delta).rem_euclid(len as i32) as usize)
 }
 
-/// The first blocked agent after the focused pane in sidebar order (space number, then pane id),
-/// wrapping; failing that the first done one; failing that a toast.
+/// The first blocked agent after the focused pane in sidebar order (space number, then Herdr's
+/// listing order), wrapping; failing that the first done one; failing that a toast.
 fn next_attention(snap: &Snapshot) -> Vec<Action> {
     let number = |ws: &str| snap.workspaces.iter().find(|w| w.id == ws).map_or(u32::MAX, |w| w.number);
     let mut agents: Vec<&Agent> = snap.agents.iter().collect();
-    agents.sort_by(|a, b| (number(&a.workspace_id), &a.pane_id).cmp(&(number(&b.workspace_id), &b.pane_id)));
+    agents.sort_by_key(|a| number(&a.workspace_id));
     let n = agents.len();
     if n == 0 { return vec![toast("No agent needs you", "", Sound::None)]; }
     let start = snap.focused.as_ref()
@@ -211,7 +211,8 @@ fn transcript(text: String, snap: &Snapshot) -> Vec<Action> {
             Action::SendText { pane_id: p.pane_id.clone(), text },
             toast("Typed, not sent", &format!("agent is working: {short}"), Sound::None),
         ],
-        _ => vec![toast("Not sent", &format!("agent is waiting at a dialog: {short}"), Sound::Request)],
+        Some(Status::Blocked) => vec![toast("Not sent", &format!("agent is waiting at a dialog: {short}"), Sound::Request)],
+        _ => vec![toast("Not sent", &format!("agent state unknown: {short}"), Sound::Request)],
     }
 }
 

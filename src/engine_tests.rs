@@ -1,4 +1,4 @@
-use crate::core::*;
+use crate::engine::*;
 
 pub fn pane(id: &str, agent: Option<&str>, status: Option<Status>) -> Pane {
     let (ws, _) = id.split_once(':').unwrap();
@@ -92,6 +92,8 @@ fn triggers_step_tabs_and_wrap() {
 #[test]
 fn y_focuses_the_next_blocked_agent_after_the_focused_pane() {
     assert_eq!(core().handle(Input::Press(Btn::Y), &snap()), vec![Action::FocusAgent("w0:p3".into())]);
+    let s = Snapshot { focused: Some(pane("w5:p2", None, None)), ..snap() };
+    assert_eq!(core().handle(Input::Press(Btn::Y), &s), vec![Action::FocusAgent("w0:p3".into())], "a shell pane is focused");
 }
 
 #[test]
@@ -298,6 +300,8 @@ fn transcript_is_dropped_when_the_agent_waits_at_a_dialog_or_is_absent() {
     assert_eq!(out, vec![toast("Not sent", "no agent in the focused pane: yes", Sound::Request)]);
     let s = Snapshot { focused: None, ..snap() };
     assert_eq!(core().handle(Input::Transcript("yes".into()), &s), vec![toast("Not sent", "no agent in the focused pane: yes", Sound::Request)]);
+    let s = Snapshot { focused: Some(pane("w5:p1", Some("claude"), Some(Status::Unknown))), ..snap() };
+    assert_eq!(core().handle(Input::Transcript("yes".into()), &s), vec![toast("Not sent", "agent state unknown: yes", Sound::Request)]);
 }
 
 #[test]
@@ -350,9 +354,13 @@ fn left_trigger_goes_backwards_among_three_tabs() {
 
 #[test]
 fn y_picks_the_nearest_blocked_agent_in_sidebar_order() {
-    // Focused w5:p1 (#1); blocked agents in #2 (w7:p1) and #3 (w0:p3): the one in #2 is next.
+    // Focused w5:p1 (#1); blocked agents in #3 (w0:p3) and #2 (w7:p1), listed in that order: the one in #2 is next.
     let mut s = snap();
-    s.agents[1].status = Status::Blocked;
+    s.agents = vec![
+        Agent { pane_id: "w5:p1".into(), workspace_id: "w5".into(), status: Status::Idle },
+        Agent { pane_id: "w0:p3".into(), workspace_id: "w0".into(), status: Status::Blocked },
+        Agent { pane_id: "w7:p1".into(), workspace_id: "w7".into(), status: Status::Blocked },
+    ];
     assert_eq!(core().handle(Input::Press(Btn::Y), &s), vec![Action::FocusAgent("w7:p1".into())]);
 }
 

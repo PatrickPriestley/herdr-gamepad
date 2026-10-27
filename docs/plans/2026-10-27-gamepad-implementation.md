@@ -95,15 +95,15 @@ git commit -m "scaffold: herd-gamepad crate and design"
 ### Task 2: Core types and D-pad pane focus
 
 **Files:**
-- Create: `src/core.rs`, `src/core_tests.rs`
+- Create: `src/engine.rs`, `src/engine_tests.rs`
 - Modify: `src/main.rs`
 
 **Step 1: Write the failing tests**
 
-`src/core_tests.rs`:
+`src/engine_tests.rs`:
 
 ```rust
-use crate::core::*;
+use crate::engine::*;
 
 pub fn pane(id: &str, agent: Option<&str>, status: Option<Status>) -> Pane {
     let (ws, _) = id.split_once(':').unwrap();
@@ -161,9 +161,9 @@ fn releases_of_ordinary_buttons_do_nothing() {
 Add to `src/main.rs` top:
 
 ```rust
-mod core;
+mod engine;
 #[cfg(test)]
-mod core_tests;
+mod engine_tests;
 ```
 
 **Step 2: Run tests to verify they fail**
@@ -173,7 +173,7 @@ Expected: compile error, `core` module not found
 
 **Step 3: Write the implementation**
 
-`src/core.rs`:
+`src/engine.rs`:
 
 ```rust
 //! The pure state machine: a controller input plus a snapshot of Herdr give the actions to run.
@@ -276,7 +276,7 @@ Expected: `test result: ok. 4 passed`
 **Step 5: Commit**
 
 ```bash
-git add src/core.rs src/core_tests.rs src/main.rs
+git add src/engine.rs src/engine_tests.rs src/main.rs
 git commit -m "core: input, snapshot and action types; D-pad focuses panes"
 ```
 
@@ -285,11 +285,11 @@ git commit -m "core: input, snapshot and action types; D-pad focuses panes"
 ### Task 3: Bumpers step spaces, triggers step tabs
 
 **Files:**
-- Modify: `src/core.rs`, `src/core_tests.rs`
+- Modify: `src/engine.rs`, `src/engine_tests.rs`
 
 **Step 1: Write the failing tests**
 
-Append to `src/core_tests.rs`:
+Append to `src/engine_tests.rs`:
 
 ```rust
 #[test]
@@ -337,7 +337,7 @@ Expected: the four new tests fail (`assertion failed`, left is `[]`)
 
 **Step 3: Write the implementation**
 
-In `src/core.rs`, replace the `press` method and add the helpers:
+In `src/engine.rs`, replace the `press` method and add the helpers:
 
 ```rust
     fn press(&mut self, b: Btn, snap: &Snapshot) -> Vec<Action> {
@@ -389,7 +389,7 @@ Expected: `test result: ok. 8 passed`
 **Step 5: Commit**
 
 ```bash
-git add src/core.rs src/core_tests.rs
+git add src/engine.rs src/engine_tests.rs
 git commit -m "core: bumpers step spaces, triggers step tabs, both wrap"
 ```
 
@@ -398,16 +398,18 @@ git commit -m "core: bumpers step spaces, triggers step tabs, both wrap"
 ### Task 4: Y finds the agent that needs you; X zooms
 
 **Files:**
-- Modify: `src/core.rs`, `src/core_tests.rs`
+- Modify: `src/engine.rs`, `src/engine_tests.rs`
 
 **Step 1: Write the failing tests**
 
-Append to `src/core_tests.rs`:
+Append to `src/engine_tests.rs`:
 
 ```rust
 #[test]
 fn y_focuses_the_next_blocked_agent_after_the_focused_pane() {
     assert_eq!(core().handle(Input::Press(Btn::Y), &snap()), vec![Action::FocusAgent("w0:p3".into())]);
+    let s = Snapshot { focused: Some(pane("w5:p2", None, None)), ..snap() };
+    assert_eq!(core().handle(Input::Press(Btn::Y), &s), vec![Action::FocusAgent("w0:p3".into())], "a shell pane is focused");
 }
 
 #[test]
@@ -462,12 +464,12 @@ In `press`, add the arms before `_ => vec![]`:
 Add the helper:
 
 ```rust
-/// The first blocked agent after the focused pane in sidebar order (space number, then pane id),
-/// wrapping; failing that the first done one; failing that a toast.
+/// The first blocked agent after the focused pane in sidebar order (space number, then Herdr's
+/// listing order), wrapping; failing that the first done one; failing that a toast.
 fn next_attention(snap: &Snapshot) -> Vec<Action> {
     let number = |ws: &str| snap.workspaces.iter().find(|w| w.id == ws).map_or(u32::MAX, |w| w.number);
     let mut agents: Vec<&Agent> = snap.agents.iter().collect();
-    agents.sort_by(|a, b| (number(&a.workspace_id), &a.pane_id).cmp(&(number(&b.workspace_id), &b.pane_id)));
+    agents.sort_by_key(|a| number(&a.workspace_id));
     let n = agents.len();
     if n == 0 { return vec![toast("No agent needs you", "", Sound::None)]; }
     let start = snap.focused.as_ref()
@@ -489,7 +491,7 @@ Expected: `test result: ok. 13 passed`
 **Step 5: Commit**
 
 ```bash
-git add src/core.rs src/core_tests.rs
+git add src/engine.rs src/engine_tests.rs
 git commit -m "core: Y focuses the next agent that needs you, X toggles zoom"
 ```
 
@@ -498,11 +500,11 @@ git commit -m "core: Y focuses the next agent that needs you, X toggles zoom"
 ### Task 5: Respond mode
 
 **Files:**
-- Modify: `src/core.rs`, `src/core_tests.rs`
+- Modify: `src/engine.rs`, `src/engine_tests.rs`
 
 **Step 1: Write the failing tests**
 
-Append to `src/core_tests.rs`:
+Append to `src/engine_tests.rs`:
 
 ```rust
 #[test]
@@ -597,7 +599,7 @@ Expected: `6` (menu_and_stick_clicks passes already; it guards against later reg
 
 **Step 3: Write the implementation**
 
-Replace `press` in `src/core.rs` and add `leave_respond` and `respond`:
+Replace `press` in `src/engine.rs` and add `leave_respond` and `respond`:
 
 ```rust
     fn press(&mut self, b: Btn, snap: &Snapshot) -> Vec<Action> {
@@ -663,7 +665,7 @@ Expected: `test result: ok. 20 passed`
 **Step 5: Commit**
 
 ```bash
-git add src/core.rs src/core_tests.rs
+git add src/engine.rs src/engine_tests.rs
 git commit -m "core: Respond mode sends D-pad, A and B to the focused agent"
 ```
 
@@ -672,11 +674,11 @@ git commit -m "core: Respond mode sends D-pad, A and B to the focused agent"
 ### Task 6: A blocked agent switches the D-pad to Respond
 
 **Files:**
-- Modify: `src/core.rs`, `src/core_tests.rs`
+- Modify: `src/engine.rs`, `src/engine_tests.rs`
 
 **Step 1: Write the failing tests**
 
-Append to `src/core_tests.rs`:
+Append to `src/engine_tests.rs`:
 
 ```rust
 fn blocked() -> Snapshot {
@@ -739,7 +741,7 @@ Expected: `test result: ok. 23 passed`
 **Step 5: Commit**
 
 ```bash
-git add src/core.rs src/core_tests.rs
+git add src/engine.rs src/engine_tests.rs
 git commit -m "core: the D-pad answers a blocked agent directly; A never confirms on the switching press"
 ```
 
@@ -748,11 +750,11 @@ git commit -m "core: the D-pad answers a blocked agent directly; A never confirm
 ### Task 7: Push-to-talk and transcript routing
 
 **Files:**
-- Modify: `src/core.rs`, `src/core_tests.rs`
+- Modify: `src/engine.rs`, `src/engine_tests.rs`
 
 **Step 1: Write the failing tests**
 
-Append to `src/core_tests.rs`:
+Append to `src/engine_tests.rs`:
 
 ```rust
 #[test]
@@ -809,6 +811,8 @@ fn transcript_is_dropped_when_the_agent_waits_at_a_dialog_or_is_absent() {
     assert_eq!(out, vec![toast("Not sent", "no agent in the focused pane: yes", Sound::Request)]);
     let s = Snapshot { focused: None, ..snap() };
     assert_eq!(core().handle(Input::Transcript("yes".into()), &s), vec![toast("Not sent", "no agent in the focused pane: yes", Sound::Request)]);
+    let s = Snapshot { focused: Some(pane("w5:p1", Some("claude"), Some(Status::Unknown))), ..snap() };
+    assert_eq!(core().handle(Input::Transcript("yes".into()), &s), vec![toast("Not sent", "agent state unknown: yes", Sound::Request)]);
 }
 
 #[test]
@@ -838,7 +842,7 @@ Expected: `9`
 
 **Step 3: Write the implementation**
 
-Replace `handle` in `src/core.rs` and add `transcript` and `preview`:
+Replace `handle` in `src/engine.rs` and add `transcript` and `preview`:
 
 ```rust
     pub fn handle(&mut self, input: Input, snap: &Snapshot) -> Vec<Action> {
@@ -880,7 +884,8 @@ fn transcript(text: String, snap: &Snapshot) -> Vec<Action> {
             Action::SendText { pane_id: p.pane_id.clone(), text },
             toast("Typed, not sent", &format!("agent is working: {short}"), Sound::None),
         ],
-        _ => vec![toast("Not sent", &format!("agent is waiting at a dialog: {short}"), Sound::Request)],
+        Some(Status::Blocked) => vec![toast("Not sent", &format!("agent is waiting at a dialog: {short}"), Sound::Request)],
+        _ => vec![toast("Not sent", &format!("agent state unknown: {short}"), Sound::Request)],
     }
 }
 
@@ -899,7 +904,7 @@ Expected: `test result: ok. 32 passed`
 **Step 5: Commit**
 
 ```bash
-git add src/core.rs src/core_tests.rs
+git add src/engine.rs src/engine_tests.rs
 git commit -m "core: push-to-talk recording and transcript routing by agent state"
 ```
 
@@ -908,11 +913,11 @@ git commit -m "core: push-to-talk recording and transcript routing by agent stat
 ### Task 8: Mutation-test the core
 
 **Files:**
-- Modify: `src/core_tests.rs`
+- Modify: `src/engine_tests.rs`
 
 **Step 1: Run cargo-mutants and see what survives**
 
-Run: `cargo mutants --file src/core.rs --timeout 60 2>&1 | tail -3`
+Run: `cargo mutants --file src/engine.rs --timeout 60 2>&1 | tail -3`
 Expected (probed 2026-10-27 against this exact code): `78 mutants tested … 6 missed, 61 caught, 11 unviable`. The six, from `mutants.out/missed.txt`:
 
 ```
@@ -926,7 +931,7 @@ replace > with >= in preview                                    (a 60-character 
 
 **Step 2: Add the tests that kill them**
 
-Append to `src/core_tests.rs`:
+Append to `src/engine_tests.rs`:
 
 ```rust
 // Added to kill the mutants cargo-mutants found on 2026-10-27.
@@ -960,9 +965,13 @@ fn left_trigger_goes_backwards_among_three_tabs() {
 
 #[test]
 fn y_picks_the_nearest_blocked_agent_in_sidebar_order() {
-    // Focused w5:p1 (#1); blocked agents in #2 (w7:p1) and #3 (w0:p3): the one in #2 is next.
+    // Focused w5:p1 (#1); blocked agents in #3 (w0:p3) and #2 (w7:p1), listed in that order: the one in #2 is next.
     let mut s = snap();
-    s.agents[1].status = Status::Blocked;
+    s.agents = vec![
+        Agent { pane_id: "w5:p1".into(), workspace_id: "w5".into(), status: Status::Idle },
+        Agent { pane_id: "w0:p3".into(), workspace_id: "w0".into(), status: Status::Blocked },
+        Agent { pane_id: "w7:p1".into(), workspace_id: "w7".into(), status: Status::Blocked },
+    ];
     assert_eq!(core().handle(Input::Press(Btn::Y), &s), vec![Action::FocusAgent("w7:p1".into())]);
 }
 
@@ -979,13 +988,13 @@ fn a_60_character_transcript_is_not_truncated() {
 Run: `cargo test --quiet 2>&1 | tail -3`
 Expected: `test result: ok. 37 passed`
 
-Run: `cargo mutants --file src/core.rs --timeout 60 2>&1 | tail -2`
+Run: `cargo mutants --file src/engine.rs --timeout 60 2>&1 | tail -2`
 Expected (probed): `78 mutants tested … 67 caught, 11 unviable`, nothing missed. A new survivor means a guard without a test: add the test; do not delete the guard without reasoning about it.
 
 **Step 4: Commit**
 
 ```bash
-git add src/core_tests.rs
+git add src/engine_tests.rs
 git commit -m "core: tests for the guards cargo-mutants found uncovered"
 ```
 
@@ -1002,7 +1011,7 @@ git commit -m "core: tests for the guards cargo-mutants found uncovered"
 `src/herdr_tests.rs` (the JSON is trimmed from live `herdr` output on 2026-10-27):
 
 ```rust
-use crate::core::*;
+use crate::engine::*;
 use crate::herdr::*;
 use std::cell::RefCell;
 
@@ -1103,7 +1112,7 @@ Expected: compile error, `herdr` module not found
 ```rust
 //! Herdr through the `herdr` CLI: a Snapshot of what is focused, and each Action as one command.
 
-use crate::core::*;
+use crate::engine::*;
 use serde_json::Value;
 
 /// Runs a command; Ok(stdout) on exit 0, Err(stderr) otherwise. Faked in tests.
@@ -1363,7 +1372,7 @@ git commit -m "herdr: each Action is one herdr command; errors carry Herdr's cod
 
 ```rust
 use crate::config::*;
-use crate::core::Btn;
+use crate::engine::Btn;
 use std::path::{Path, PathBuf};
 
 fn state() -> PathBuf { PathBuf::from("/tmp/state") }
@@ -1437,7 +1446,7 @@ Expected: compile error, `config` module not found
 ```rust
 //! The plugin's settings file and its Herdr-assigned directories.
 
-use crate::core::Btn;
+use crate::engine::Btn;
 use std::path::{Path, PathBuf};
 
 pub const PLUGIN_ID: &str = "herd.gamepad";
@@ -1691,7 +1700,7 @@ git commit -m "voice: cpal recorder, WAV writer, whisper-cli transcription and m
 `src/pad_tests.rs`:
 
 ```rust
-use crate::core::{Btn, Input};
+use crate::engine::{Btn, Input};
 use crate::pad::*;
 use gilrs::Button;
 
@@ -1766,7 +1775,7 @@ Expected: compile error, `pad` module not found
 //! The controller: gilrs events become core Inputs. `Raw` exists because gilrs's `Code` cannot be
 //! built in tests; `raw()` is the only untested line and it only forgets the code.
 
-use crate::core::{Btn, Input};
+use crate::engine::{Btn, Input};
 use gilrs::{Button, EventType};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1886,7 +1895,7 @@ No unit tests: `serve` only wires tested parts together. It is exercised by Task
 //! The daemon: controller events in, herdr commands out, with push-to-talk transcribed off-thread.
 
 use crate::config::Config;
-use crate::core::*;
+use crate::engine::*;
 use crate::herdr::{Cli, Herdr, Runner};
 use crate::pad::{self, Pad};
 use crate::voice::{self, Recorder};
@@ -2007,13 +2016,13 @@ Press Enter to close.
 //! herd-gamepad: drive Herdr with an Xbox controller.
 
 mod config;
-mod core;
+mod engine;
 mod herdr;
 mod pad;
 mod serve;
 mod voice;
 #[cfg(test)] mod config_tests;
-#[cfg(test)] mod core_tests;
+#[cfg(test)] mod engine_tests;
 #[cfg(test)] mod herdr_tests;
 #[cfg(test)] mod pad_tests;
 #[cfg(test)] mod voice_tests;
@@ -2323,4 +2332,4 @@ git commit -m "docs: what the controller reports on hardware"
 
 ### Task 17: Independent review
 
-Per `~/AGENT-WORKFLOW.md`: have a different model family read `src/core.rs`, `src/serve.rs` and `src/voice.rs` and hunt for holes, in particular any path by which a transcript or a key press could reach an agent the user did not intend, or a blocked dialog could be confirmed with one press. Require a concrete failure case for each finding, verify it, and fix only the verified ones with a failing test first.
+Per `~/AGENT-WORKFLOW.md`: have a different model family read `src/engine.rs`, `src/serve.rs` and `src/voice.rs` and hunt for holes, in particular any path by which a transcript or a key press could reach an agent the user did not intend, or a blocked dialog could be confirmed with one press. Require a concrete failure case for each finding, verify it, and fix only the verified ones with a failing test first.
