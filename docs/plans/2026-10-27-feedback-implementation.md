@@ -1001,3 +1001,17 @@ Run spec, quality and different-model reviews. Build and atomically replace the 
 ## Final verification so far
 
 `cargo test --offline --quiet`: 147 unit + 4 integration =151 passing tests. `sh tests/build.sh`: atomic build installation passed. Final renderer/gate/new-view mutation run:54 mutations,51 caught,1 unviable,2 logically equivalent flock OR-to-XOR cases. No actionable survivors. Exact five-second admission boundary is tested with a fixed Instant; renderer entrypoint itself is exercised by the subprocess fixture. Full-engine mutation run:126 mutations,110 caught,16 unviable,zero missed and zero timeouts.
+
+## Review correction: transient renderer lock contention
+
+The original one-shot renderer lock acquisition could lose to the daemon's own
+brief ownership probe and incorrectly report another display. A subprocess test
+held the probe lock while starting the renderer and observed its premature exit.
+A second test exposed non-contention errors being mislabeled as duplicate viewers.
+
+The renderer now retries only EWOULDBLOCK for at most one second, with a 20 ms
+pause between attempts. This remains below the daemon's two-second startup bound;
+other lock errors retain their OS message and return immediately. Regressions
+cover a probe released after 50 ms, a persistent owner rejecting the second viewer
+within the startup window, current revision acknowledgement after acquisition,
+and clean exit after cancellation.

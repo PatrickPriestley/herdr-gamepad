@@ -206,10 +206,22 @@ pub fn render_from_env() -> Result<(), String> {
     render(Path::new(&dir))
 }
 fn acquire_lease(fd: std::os::fd::RawFd) -> Result<(), String> {
-    if unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-        return Err("close menu already displayed".into());
+    // The daemon briefly takes this same lock to probe renderer ownership. Give
+    // that probe time to release it, while still rejecting a second live viewer.
+    let deadline = Instant::now() + Duration::from_secs(1);
+    loop {
+        if unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+            return Ok(());
+        }
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::EWOULDBLOCK) {
+            return Err(error.to_string());
+        }
+        if Instant::now() >= deadline {
+            return Err("close menu already displayed".into());
+        }
+        std::thread::sleep(Duration::from_millis(20));
     }
-    Ok(())
 }
 fn render(dir: &Path) -> Result<(), String> {
     let lease = OpenOptions::new()

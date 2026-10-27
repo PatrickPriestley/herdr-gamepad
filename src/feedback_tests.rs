@@ -309,27 +309,51 @@ fn close_view_uses_the_configured_cancel_button() {
 fn renderer_retries_a_brief_probe_lock_but_rejects_a_persistent_owner() {
     let root = root();
     let session = Session::new(&root, "test menu".into()).unwrap();
-    let lock = OpenOptions::new().read(true).write(true)
-        .open(session.dir.join("viewer.lock")).unwrap();
-    assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    let lock = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(session.dir.join("viewer.lock"))
+        .unwrap();
+    assert_eq!(
+        unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
+        0
+    );
     let mut transient = viewer(&session.dir);
     std::thread::sleep(Duration::from_millis(50));
-    assert!(transient.0.try_wait().unwrap().is_none(), "renderer must wait for a brief probe lock");
+    assert!(
+        transient.0.try_wait().unwrap().is_none(),
+        "renderer must wait for a brief probe lock"
+    );
     assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_UN) }, 0);
     wait_ack(&session.dir, 1);
-    assert!(session.ready(), "released probe lock permits the current renderer");
+    assert!(
+        session.ready(),
+        "released probe lock permits the current renderer"
+    );
     fs::remove_file(session.dir.join("state")).unwrap();
     wait_exit(&mut transient, true);
 
     session.write().unwrap();
     fs::remove_file(session.dir.join("ack")).unwrap();
-    assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    assert_eq!(
+        unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
+        0
+    );
     let started = Instant::now();
     let mut persistent = viewer(&session.dir);
     wait_exit(&mut persistent, false);
-    assert!(started.elapsed() >= Duration::from_millis(900), "ownership gets a short retry window");
-    assert!(started.elapsed() < Duration::from_secs(2), "retry ends before daemon startup timeout");
-    assert!(!session.dir.join("ack").exists(), "another lock owner never authorizes this renderer");
+    assert!(
+        started.elapsed() >= Duration::from_millis(900),
+        "ownership gets a short retry window"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "retry ends before daemon startup timeout"
+    );
+    assert!(
+        !session.dir.join("ack").exists(),
+        "another lock owner never authorizes this renderer"
+    );
     drop(lock);
     drop(session);
     fs::remove_dir(root).unwrap();
@@ -341,8 +365,14 @@ fn lease_acquisition_preserves_non_contention_errors_without_retrying() {
     let lock = File::create(root.join("lock")).unwrap();
     assert!(acquire_lease(lock.as_raw_fd()).is_ok());
     let started = Instant::now();
-    assert_eq!(acquire_lease(-1).unwrap_err(), io::Error::from_raw_os_error(libc::EBADF).to_string());
-    assert!(started.elapsed() < Duration::from_millis(250), "non-contention errors do not consume the retry window");
+    assert_eq!(
+        acquire_lease(-1).unwrap_err(),
+        io::Error::from_raw_os_error(libc::EBADF).to_string()
+    );
+    assert!(
+        started.elapsed() < Duration::from_millis(250),
+        "non-contention errors do not consume the retry window"
+    );
     drop(lock);
     fs::remove_file(root.join("lock")).unwrap();
     fs::remove_dir(root).unwrap();
