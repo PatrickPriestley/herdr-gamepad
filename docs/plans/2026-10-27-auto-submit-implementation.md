@@ -65,7 +65,7 @@ label regression fails on the constant-label mutant. Final mutation results foll
 +++ b/src/engine_tests.rs
 @@ -299,11 +299,11 @@
  }
- 
+
  #[test]
 -fn transcript_to_a_working_agent_is_typed_but_not_sent() {
 +fn transcript_to_a_working_agent_is_submitted() {
@@ -77,7 +77,7 @@ label regression fails on the constant-label mutant. Final mutation results foll
 +        toast("Sent", "also check lint", Sound::None),
      ]);
  }
- 
+
 @@ -611,3 +611,18 @@
          assert_eq!(out[1], Action::SendKeys { target: "w5:p1".into(), keys: vec![key] }, "{b:?}");
      }
@@ -173,11 +173,11 @@ label regression fails on the constant-label mutant. Final mutation results foll
  }
 @@ -56,7 +56,7 @@
  fn prompt_delivery_feedback_tracks_the_command_result() { check_transcript_feedback(Status::Idle); }
- 
+
  #[test]
 -fn typed_delivery_feedback_tracks_the_command_result() { check_transcript_feedback(Status::Working); }
 +fn working_prompt_delivery_feedback_tracks_the_command_result() { check_transcript_feedback(Status::Working); }
- 
+
  #[test]
  fn a_failed_mode_toast_does_not_discard_the_key_press() {
 ```
