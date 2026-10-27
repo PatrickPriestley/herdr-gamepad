@@ -26,7 +26,7 @@ pub fn serve() -> Result<(), String> {
     let mut core = Core::new(cfg.voice_button);
     let mut recorder: Option<Recorder> = None;
     let (tx, rx) = mpsc::channel::<Input>();
-    eprintln!("herd-gamepad: listening; {} controller(s) connected; hold {:?} to talk", gilrs.gamepads().count(), cfg.voice_button);
+    eprintln!("herd-gamepad: listening; {} controller(s) connected; hold {} to talk", gilrs.gamepads().count(), cfg.voice_button.label());
     loop {
         let mut inputs = vec![];
         if let Some(ev) = gilrs.next_event_blocking(Some(Duration::from_millis(100))) {
@@ -127,6 +127,8 @@ fn try_lock(state: &Path) -> Result<Option<File>, String> {
 fn describe(input: &Input) -> String {
     match input {
         Input::Transcript(t) => format!("Transcript({:?})", preview(t)),
+        Input::Press(b) => format!("Press({})", b.label()),
+        Input::Release(b) => format!("Release({})", b.label()),
         other => format!("{other:?}"),
     }
 }
@@ -181,19 +183,46 @@ pub fn setup() -> Result<(), String> {
     Ok(())
 }
 
+pub fn mapping() -> Result<(), String> {
+    let (cfg, _) = crate::config::load()?;
+    print!("{MAPPING}\nHold {} to talk; release to transcribe.\n", cfg.voice_button.label());
+    println!("Idle/done: sent. Working: typed without Enter. Blocked/unknown/no agent: dropped.");
+    println!("\nPress Enter to close.");
+    let _ = std::io::stdin().read_line(&mut String::new());
+    Ok(())
+}
+
 pub const MAPPING: &str = "\
-herd-gamepad                                   View = back to Navigate
+herd-gamepad — controller mapping
 
-Navigate (default)                 Respond (after A, or a D-pad press on a blocked agent)
-  D-pad   focus pane                 D-pad   up / down / left / right
-  LB RB   previous / next space      A       enter
-  LT RT   previous / next tab        B       esc
-  Y       next agent that needs you  LB RB LT RT Y X  as in Navigate, then back to Navigate
-  X       zoom the pane
-  A       Respond mode
+Physical control       Xbox          PlayStation
+Bottom face button     A             Cross (X)
+Right face button      B             Circle (O)
+Left face button       X             Square
+Top face button        Y             Triangle
+Left / right shoulder  LB / RB       L1 / R1
+Left / right trigger   LT / RT       L2 / R2
+Back / Select          View          Create (PS5) / Share (PS4)
+Menu                   Menu          Options
+Left / right stick     Stick clicks  L3 / R3
 
-Hold the right stick click (or voice.button in config.toml) to talk; release to send.
-  idle or done agent: sent    working: typed, not sent    blocked, unknown or none: dropped
+NAVIGATE
+D-pad                  Focus a neighbouring pane
+Left / right shoulder  Previous / next space
+Left / right trigger   Previous / next tab
+Top face button        Next agent needing attention
+Left face button       Toggle pane zoom
+Bottom face button     Enter Respond mode
 
-Press Enter to close.
+RESPOND
+D-pad                  Move through the agent's options
+Bottom face button     Enter / confirm
+Right face button      Escape
+Back / Select          Return to Navigate
+Shoulders, triggers,
+  top or left face     Navigate as above and leave Respond
+
+A D-pad press on a blocked agent auto-switches to Respond.
+Each confirmation needs acknowledgement first; follow the on-screen prompt.
+Button positions define the actions, even when your controller uses other labels.
 ";

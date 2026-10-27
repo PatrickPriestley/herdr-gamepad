@@ -3,7 +3,7 @@ use crate::pad::*;
 use gilrs::Button;
 
 #[test]
-fn xbox_buttons_map_to_their_labels() {
+fn physical_buttons_map_to_core_inputs() {
     let mut p = Pad::new();
     for (g, b) in [
         (Button::South, Btn::A), (Button::East, Btn::B), (Button::West, Btn::X), (Button::North, Btn::Y),
@@ -20,7 +20,7 @@ fn xbox_buttons_map_to_their_labels() {
 #[test]
 fn unknown_buttons_are_ignored() {
     let mut p = Pad::new();
-    assert_eq!(p.input(Raw::Pressed(Button::Mode)), None, "the Xbox button is the system's");
+    assert_eq!(p.input(Raw::Pressed(Button::Mode)), None, "the home button is the system's");
     assert_eq!(p.input(Raw::Pressed(Button::Unknown)), None);
     assert_eq!(p.input(Raw::Changed(Button::South, 1.0)), None, "digital buttons use Pressed/Released, not Changed");
 }

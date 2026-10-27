@@ -3,7 +3,7 @@ name = "herd-gamepad"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.89"
-description = "Herdr plugin: drive Herdr with an Xbox controller"
+description = "Herdr plugin: drive Herdr with a game controller"
 license = "MIT"
 
 [[bin]]

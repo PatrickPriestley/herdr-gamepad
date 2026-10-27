@@ -4,6 +4,22 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Btn { A, B, X, Y, Lb, Rb, Lt, Rt, View, Menu, Up, Down, Left, Right, LStick, RStick }
 
+impl Btn {
+    /// Physical labels remain meaningful regardless of the lettering on a controller.
+    pub fn label(self) -> &'static str {
+        match self {
+            Btn::A => "bottom face button", Btn::B => "right face button",
+            Btn::X => "left face button", Btn::Y => "top face button",
+            Btn::Lb => "left shoulder", Btn::Rb => "right shoulder",
+            Btn::Lt => "left trigger", Btn::Rt => "right trigger",
+            Btn::View => "Back / Select", Btn::Menu => "Menu / Options",
+            Btn::Up => "D-pad up", Btn::Down => "D-pad down",
+            Btn::Left => "D-pad left", Btn::Right => "D-pad right",
+            Btn::LStick => "left stick click", Btn::RStick => "right stick click",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Input { Press(Btn), Release(Btn), Connected, Disconnected, Transcript(String), TranscriptFailed(String) }
 
@@ -152,8 +168,8 @@ impl Core {
                     Some(_) => {
                         // Entering on a blocked agent is the acknowledgement; the next A confirms.
                         self.enter_respond(agent_pane, blocked);
-                        if blocked { vec![toast("Respond mode", "agent waiting; A again confirms", Sound::Request)] }
-                        else { vec![toast("Respond mode", "D-pad moves, A enters, B escapes, View leaves", Sound::None)] }
+                        if blocked { vec![toast("Respond mode", "agent waiting; press the bottom face button again to confirm", Sound::Request)] }
+                        else { vec![toast("Respond mode", "D-pad moves; bottom confirms, right escapes; Back / Select leaves", Sound::None)] }
                     }
                     None => vec![toast("No agent here", "focus a pane with an agent first", Sound::None)],
                 },
@@ -207,7 +223,7 @@ impl Core {
         let blocked_now = p.status == Some(Status::Blocked);
         if blocked_now && !self.acknowledged_block && key == Key::Enter {
             self.acknowledged_block = true;
-            return vec![toast("The agent is waiting", "press A again to confirm", Sound::Request)];
+            return vec![toast("The agent is waiting", "press the bottom face button again to confirm", Sound::Request)];
         }
         self.acknowledged_block = blocked_now && key != Key::Enter;
         vec![Action::SendKeys { target: p.pane_id.clone(), keys: vec![key] }]

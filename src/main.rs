@@ -1,4 +1,4 @@
-//! herd-gamepad: drive Herdr with an Xbox controller.
+//! herd-gamepad: drive Herdr with a game controller.
 
 mod config;
 mod engine;
@@ -22,7 +22,7 @@ fn main() {
         Some("ensure") => run(serve::ensure),
         Some("setup") => run(serve::setup),
         Some("probe") => run(pad::probe),
-        Some("mapping") => { print!("{}", serve::MAPPING); let _ = std::io::stdin().read_line(&mut String::new()); 0 }
+        Some("mapping") => run(serve::mapping),
         Some("open-mapping") => run(|| herdr::Cli::default().run(&["herdr", "plugin", "pane", "open", "--plugin", config::PLUGIN_ID, "--entrypoint", "mapping"]).map(|_| ())),
         Some("version") | Some("--version") => { println!("herd-gamepad {}", env!("CARGO_PKG_VERSION")); 0 }
         _ => { eprintln!("usage: herd-gamepad serve|ensure|setup|probe|mapping|open-mapping|version"); 2 }

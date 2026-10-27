@@ -1,4 +1,4 @@
-# herd.gamepad: drive Herdr with an Xbox controller.
+# herd.gamepad: drive Herdr with a game controller.
 # Design: docs/plans/2026-10-27-gamepad-design.md
 # Settings: $(herdr plugin config-dir herd.gamepad)/config.toml — whisper.model, whisper.language,
 # voice.button (rstick, lstick, menu), voice.max_seconds.
@@ -6,7 +6,7 @@
 id = "herd.gamepad"
 name = "Gamepad"
 version = "0.1.0"
-description = "Drive Herdr with an Xbox controller: focus panes, tabs and spaces, answer agents, hold a button to talk."
+description = "Drive Herdr with a game controller: focus panes, tabs and spaces, answer agents, hold a button to talk."
 min_herdr_version = "0.9.1"
 platforms = ["macos"]
 
