@@ -30,7 +30,7 @@ pub fn serve() -> Result<(), String> {
     crate::logging::event(format_args!("herd-gamepad: listening; {} controller(s) connected; hold {} to talk", gilrs.gamepads().count(), cfg.voice_button.label()));
     while !cancellation.cancelled() {
         let inputs = next_inputs(|| {
-            gilrs.next_event_blocking(Some(Duration::from_millis(100)))
+            gilrs.next_event()
                 .and_then(|ev| pad::raw(&ev.event)).and_then(|r| pad.input(r))
         }, &rx);
         for mut input in inputs {
@@ -77,8 +77,12 @@ pub fn serve() -> Result<(), String> {
 
 /// One daemon tick: controller polling and completed transcriptions.
 pub fn next_inputs(poll: impl FnOnce() -> Option<Input>, rx: &mpsc::Receiver<Input>) -> Vec<Input> {
-    let mut inputs: Vec<Input> = poll().into_iter().collect();
-    inputs.extend(rx.try_iter());
+    // A finished transcript clears transcribing before a simultaneous new voice press.
+    let mut inputs: Vec<Input> = rx.try_iter().collect();
+    inputs.extend(poll());
+    // Keep the controller adapter nonblocking: gilrs's filtered blocking wait can reset
+    // its timeout indefinitely under stick jitter, starving this channel and Stop.
+    std::thread::sleep(Duration::from_millis(10));
     inputs
 }
 

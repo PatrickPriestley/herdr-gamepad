@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Deliver completed dictation without waiting for another controller button press.
+
 - Add controller close-pane and close-space actions with explicit target confirmation and cancellation.
 
 - Submit dictation automatically to working agents as well as idle/done agents; no extra Enter press.
