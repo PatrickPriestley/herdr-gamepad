@@ -30,7 +30,7 @@ jobs:
       - name: Test
         run: cargo test --locked
       - name: Build through the plugin entrypoint
-        run: sh scripts/build.sh
+        run: sh tests/build.sh && sh scripts/build.sh
       - name: Smoke test the installed layout
         env:
           HERDR_PLUGIN_CONFIG_DIR: ${{ runner.temp }}/gamepad-config

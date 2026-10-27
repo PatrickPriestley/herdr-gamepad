@@ -10,4 +10,9 @@ fi
 command -v cargo >/dev/null 2>&1 || { echo "herd-gamepad: cargo not found; install Rust from https://rustup.rs" >&2; exit 1; }
 ( cd "$root" && cargo build --locked --release --quiet )
 mkdir -p "$(dirname -- "$out")"
-cp "$root/target/release/herd-gamepad" "$out"
+# A fresh inode avoids invalidating a running executable and macOS signature caches.
+staged=$(mktemp "${out}.XXXXXX")
+trap 'rm -f "$staged"' EXIT HUP INT TERM
+cp "$root/target/release/herd-gamepad" "$staged"
+chmod +x "$staged"
+mv -f "$staged" "$out"

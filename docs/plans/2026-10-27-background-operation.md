@@ -4,6 +4,7 @@ status: diverged
 accepted_by: PatrickPriestley (instruction to plan and then implement)
 accepted_on: 2026-10-27
 divergences:
+  - Live rebuild exposed macOS exit 137 after overwriting an executable in place; added atomic binary replacement, tests/build.sh, and its CI invocation.
   - Integration and worker-shutdown coverage was added after wiring; scoped guard mutations verified these assertions detect broken shutdown.
   - Use the user's three explicit requirements as the spec and proceed directly to implementation as requested, without a separate spec/plan PR approval round.
 ---
@@ -82,3 +83,9 @@ Log writes are serialized and rotate at 1 MiB, retaining one prior log. Show log
   both guards were independently mutation-tested.
 - Fresh controller/microphone interaction after this lifecycle change still requires human
   hardware validation. Automated tests cover cancellation and Herdr lifecycle/UI integration.
+
+- Final live rebuild exposed exit 137 for the overwritten bin/herd-gamepad, while the
+  release-target binary ran. The build entrypoint now copies to a fresh temporary inode
+  then renames it into place. `sh tests/build.sh` failed before the fix (inode unchanged)
+  and passes afterward; the replaced binary runs and the full live lifecycle probe passes.
+  This adds scripts/build.sh, tests/build.sh and .github/workflows/ci.yml beyond the original file list.
