@@ -49,12 +49,21 @@ fetch_release() {
   return $status
 }
 
-# Build with cargo into $1; non-zero when cargo is not installed.
+# Build with cargo into $1; 127 when cargo is not installed, 1 when the build fails. Every
+# step checks its own status: callers run this on the left of ||, which suspends set -e.
 build_source() {
   [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
-  command -v cargo >/dev/null 2>&1 || return 1
-  ( cd "$root" && cargo build --locked --release --quiet )
+  command -v cargo >/dev/null 2>&1 || return 127
+  ( cd "$root" && cargo build --locked --release --quiet ) || return 1
   cp "$root/target/release/herd-gamepad" "$1"
+}
+
+# Exit 1 after build_source failed with status $1; $2 is the message for a missing cargo.
+build_failed() {
+  if [ "$1" = 127 ]; then echo "herd-gamepad: $2" >&2
+  else echo "herd-gamepad: cargo build failed; the installed binary is unchanged" >&2
+  fi
+  exit 1
 }
 
 mkdir -p "$(dirname -- "$out")"
@@ -62,12 +71,9 @@ mkdir -p "$(dirname -- "$out")"
 staged=$(mktemp "${out}.XXXXXX")
 trap 'rm -f "$staged"' EXIT HUP INT TERM
 if [ "${HERD_GAMEPAD_BUILD:-}" = source ]; then
-  build_source "$staged" || { echo "herd-gamepad: cargo not found; install Rust from https://rustup.rs" >&2; exit 1; }
+  build_source "$staged" || build_failed $? "cargo not found; install Rust from https://rustup.rs"
 elif ! fetch_release "$staged"; then
-  build_source "$staged" || {
-    echo "herd-gamepad: could not download the release binary, and cargo is not installed; check the network or install Rust from https://rustup.rs and retry" >&2
-    exit 1
-  }
+  build_source "$staged" || build_failed $? "could not download the release binary, and cargo is not installed; check the network or install Rust from https://rustup.rs and retry"
 fi
 chmod +x "$staged"
 mv -f "$staged" "$out"

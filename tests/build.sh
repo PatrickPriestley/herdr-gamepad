@@ -99,9 +99,27 @@ run "$f" "$f/tools:$base_path" "" || fail "nodigest: exit $?: $(cat "$f/log")"
 [ "$("$f/bin/herd-gamepad")" = "new binary" ] || fail "nodigest: an unverifiable download was installed"
 grep -q "checksum mismatch" "$f/log" || fail "nodigest: log does not mention the mismatch: $(cat "$f/log")"
 
+# 10. A failing cargo build exits non-zero, leaves the old binary alone, keeps cargo's error in
+# the log, and does not blame a missing cargo. A stale target/release/herd-gamepad exists.
+f=$(fixture buildfail)
+printf '#!/bin/sh\necho "error: could not compile" >&2\nexit 101\n' > "$f/tools/cargo"
+if run "$f" "$f/tools:$base_path" HERD_GAMEPAD_BUILD=source; then fail "buildfail: expected a non-zero exit"; fi
+[ "$("$f/bin/herd-gamepad")" = "old binary" ] || fail "buildfail: a stale target/release binary was installed"
+grep -q "could not compile" "$f/log" || fail "buildfail: cargo's error is not in the log: $(cat "$f/log")"
+if grep -q "rustup.rs" "$f/log"; then fail "buildfail: blamed a missing cargo although cargo ran: $(cat "$f/log")"; fi
+[ -z "$(ls "$f/bin" | grep -v '^herd-gamepad$')" ] || fail "buildfail: staging file left behind: $(ls "$f/bin")"
+
+# 11. No release and a failing cargo build: the same, on the download-fallback path.
+f=$(fixture fallbackfail)
+printf '#!/bin/sh\necho "error: could not compile" >&2\nexit 101\n' > "$f/tools/cargo"
+if run "$f" "$f/tools:$base_path" ""; then fail "fallbackfail: expected a non-zero exit"; fi
+[ "$("$f/bin/herd-gamepad")" = "old binary" ] || fail "fallbackfail: a stale target/release binary was installed"
+grep -q "could not compile" "$f/log" || fail "fallbackfail: cargo's error is not in the log: $(cat "$f/log")"
+if grep -q "cargo is not installed" "$f/log"; then fail "fallbackfail: blamed a missing cargo although cargo ran: $(cat "$f/log")"; fi
+
 # 7. An installed copy (binary present, no Cargo.toml) does nothing and never downloads.
 f=$(fixture installed); release "$f"; rm "$f/Cargo.toml"
 run "$f" "$base_path" "" || fail "installed: exit $?: $(cat "$f/log")"
 [ "$("$f/bin/herd-gamepad")" = "old binary" ] || fail "installed: an installed copy was rebuilt"
 
-[ "$failures" = 0 ] && echo "build script: 9 cases passed" || { echo "build script: $failures failing" >&2; exit 1; }
+[ "$failures" = 0 ] && echo "build script: 11 cases passed" || { echo "build script: $failures failing" >&2; exit 1; }
