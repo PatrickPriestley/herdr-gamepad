@@ -28,9 +28,21 @@ impl Runner for Cli {
     fn run(&self, argv: &[&str]) -> Result<String, String> { run_with_timeout(argv, self.timeout) }
 }
 
+pub struct CancellableCli { pub timeout: Duration, pub cancellation: crate::lifecycle::Cancellation }
+impl Runner for CancellableCli {
+    fn run(&self, argv: &[&str]) -> Result<String, String> {
+        run_with_cancellation(argv, self.timeout, || self.cancellation.cancelled())
+    }
+}
+
 /// Runs argv: Ok(stdout) on exit 0; Err(stderr, or the exit status when stderr is empty) otherwise.
 /// A command still running at the deadline is killed and reaped, so a wedged Herdr server cannot freeze the daemon.
 pub fn run_with_timeout(argv: &[&str], timeout: Duration) -> Result<String, String> {
+    run_with_cancellation(argv, timeout, || false)
+}
+
+pub fn run_with_cancellation(argv: &[&str], timeout: Duration, cancelled: impl Fn() -> bool) -> Result<String, String> {
+    if cancelled() { return Err("command cancelled".into()); }
     let name = *argv.first().ok_or("empty argv")?;
     let mut child = Command::new(name).args(&argv[1..])
         .process_group(0)
@@ -45,6 +57,7 @@ pub fn run_with_timeout(argv: &[&str], timeout: Duration) -> Result<String, Stri
         nonblocking(&stdout).and_then(|_| nonblocking(&stderr)).map_err(|e| format!("{name}: {e}"))?;
         let (mut out, mut err) = (Vec::new(), Vec::new());
         loop {
+            if cancelled() { return Err("command cancelled".into()); }
             if Instant::now() >= deadline { return Err(format!("{name}: timed out after {timeout:?}")); }
             let out_done = drain_available(&mut stdout, &mut out).map_err(|e| format!("{name}: stdout: {e}"))?;
             let err_done = drain_available(&mut stderr, &mut err).map_err(|e| format!("{name}: stderr: {e}"))?;

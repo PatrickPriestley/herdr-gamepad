@@ -18,7 +18,7 @@ divergences:
 
 A throwaway Herdr 0.9.1 action (`printf ready; sleep 2; printf done`) ran without a pane. Its native log had status running but no output until exit. Therefore Start will run `serve` as a Herdr-owned action (not detach another process), while the daemon writes its own bounded state log. The action retains its installation's lifecycle ownership.
 
-Keep daemon.pid flock as the single-instance authority. Write an instance token under that lock. Stop writes that token to daemon.stop, then waits for the matching instance to release its lock. Only the daemon matching the token observes it. No PID signalling; stale requests cannot stop a new instance. Legacy PID-only daemons require a one-time stop of the old Gamepad pane, rather than signalling an unverified PID.
+Keep daemon.pid flock as the single-instance authority. Write an instance token under that lock. Stop writes an instance-specific daemon.stop.<token> request, then waits for the matching instance to release its lock. A short control-file flock serializes token publication and stop-request creation. Only the daemon matching the token observes it. No PID signalling; stale requests cannot stop a new instance. Legacy PID-only daemons require a one-time stop of the old Gamepad pane, rather than signalling an unverified PID.
 
 A shared cancellation check reaches the event loop, Herdr subprocess calls and whisper subprocess calls. Stop drops a recording, cancels and joins transcription, discards pending transcripts, and releases the daemon lock. Herdr/whisper subprocess groups are cleaned up by the existing bounded runner.
 

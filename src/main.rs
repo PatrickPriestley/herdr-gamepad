@@ -1,6 +1,10 @@
 //! herd-gamepad: drive Herdr with a game controller.
 
 mod config;
+mod lifecycle;
+mod logging;
+#[cfg(test)] mod lifecycle_tests;
+#[cfg(test)] mod logging_tests;
 mod engine;
 mod herdr;
 mod pad;
@@ -19,17 +23,20 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let code = match args.first().map(String::as_str) {
         Some("serve") => run(serve::serve),
+        Some("stop") => run(serve::stop),
+        Some("logs") => run(serve::logs),
+        Some("open-logs") => run(|| herdr::Cli::default().run(&["herdr", "plugin", "pane", "open", "--plugin", config::PLUGIN_ID, "--entrypoint", "logs"]).map(|_| ())),
         Some("ensure") => run(serve::ensure),
         Some("setup") => run(serve::setup),
         Some("probe") => run(pad::probe),
         Some("mapping") => run(serve::mapping),
         Some("open-mapping") => run(|| herdr::Cli::default().run(&["herdr", "plugin", "pane", "open", "--plugin", config::PLUGIN_ID, "--entrypoint", "mapping"]).map(|_| ())),
         Some("version") | Some("--version") => { println!("herd-gamepad {}", env!("CARGO_PKG_VERSION")); 0 }
-        _ => { eprintln!("usage: herd-gamepad serve|ensure|setup|probe|mapping|open-mapping|version"); 2 }
+        _ => { eprintln!("usage: herd-gamepad serve|ensure|stop|setup|probe|mapping|open-mapping|logs|open-logs|version"); 2 }
     };
     std::process::exit(code);
 }
 
 fn run(f: impl FnOnce() -> Result<(), String>) -> i32 {
-    match f() { Ok(()) => 0, Err(e) => { eprintln!("herd-gamepad: {e}"); 1 } }
+    match f() { Ok(()) => 0, Err(e) => { crate::logging::event(format_args!("herd-gamepad: {e}")); 1 } }
 }

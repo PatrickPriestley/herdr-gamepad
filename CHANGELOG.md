@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Run Gamepad as a Herdr background action with explicit Start and Stop controls.
+- Cancel active voice work and wait for shutdown on Stop.
+- Add on-demand recent logs in an overlay, with bounded log rotation.
+- Keep the mapping overlay on demand; starting no longer opens a daemon tab.
+- Upgrade from v0.1.0 by closing its old Gamepad pane once before starting.
+
+
 ## 0.1.0
 
 Initial macOS release:

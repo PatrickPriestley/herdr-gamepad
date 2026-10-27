@@ -27,7 +27,7 @@ impl Recorder {
         let stream = dev.build_input_stream(
             cfg,
             move |data: &[f32], _| append_capped(&mut sink.lock().unwrap(), data, max),
-            |e| eprintln!("herd-gamepad: recorder: {e}"),
+            |e| crate::logging::event(format_args!("herd-gamepad: recorder: {e}")),
             None,
         ).map_err(|e| format!("input stream: {e}"))?;
         stream.play().map_err(|e| format!("play: {e}"))?;
