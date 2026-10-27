@@ -36,8 +36,23 @@ palette: "Gamepad: set up voice" (downloads the 148 MB base.en model once), then
 
 The first time you hold the voice button, macOS asks whether the terminal app may use the
 microphone; if that is denied, every hold ends with a "Recording failed" toast (allow it in
-System Settings > Privacy & Security > Microphone). The daemon's log is in the "Gamepad"
-tab that "Gamepad: start" opens.
+System Settings > Privacy & Security > Microphone).
+
+## Background operation (next release)
+
+"Gamepad: start" listens in the background without opening a pane. "Gamepad: stop"
+ends listening and cancels active recording or transcription. Repeated Start/Stop is safe.
+Herdr owns the background action; start it again after restarting Herdr.
+
+"Gamepad: show logs" opens an overlay containing a snapshot of recent diagnostics;
+reopen it to refresh. Logs rotate at 1 MiB and retain one previous file in the plugin
+state directory (`daemon.log` and `daemon.log.1`). Logs can include transcript previews.
+"Gamepad: show the mapping" opens the mapping overlay only when requested. Closing
+either overlay leaves the background daemon running.
+
+These controls are on the development branch and are not in the v0.1.0 release above.
+When upgrading from v0.1.0, close its old Gamepad daemon pane once before starting the
+new background version. Settings and downloaded models are preserved.
 
 ## Buttons
 
@@ -79,7 +94,7 @@ To inspect a controller's events, run `herd-gamepad probe`; Ctrl-C stops it.
 
 ## Updates and removal
 
-To install a newer release, stop the daemon with Ctrl-C in its Gamepad tab, then rerun
+To install a newer release, use "Gamepad: stop" (v0.1.0: Ctrl-C in its Gamepad tab), then rerun
 `herdr plugin install PatrickPriestley/herdr-gamepad --ref <release-tag>` and invoke
 "Gamepad: start". A running daemon keeps its old executable until restarted.
 

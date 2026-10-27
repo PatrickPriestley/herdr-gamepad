@@ -140,3 +140,13 @@ and are toasted; the loop keeps running. A `herdr` error never stops the daemon.
 
 Analog sticks, pane resize and move, workspace picker, dictation fallback, the raw socket
 protocol, Linux, a launchd service, full button remapping.
+
+
+## Background lifecycle update (2026-10-27)
+
+The background-operation plan supersedes the original daemon-pane design. Start runs
+`serve` as a Herdr-owned action with no terminal pane. Stop requests cancellation for
+the current instance and waits for recording/transcription cleanup and lock release.
+Logs rotate in plugin state (1 MiB plus one previous file). Show logs and Show mapping
+open explicit overlays; neither is opened by Start. See
+[background-operation plan](2026-10-27-background-operation.md).

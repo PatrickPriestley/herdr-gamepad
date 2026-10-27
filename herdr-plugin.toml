@@ -15,10 +15,10 @@ platforms = ["macos"]
 command = ["/bin/sh", "scripts/build.sh"]
 
 [[panes]]
-id = "daemon"
-title = "Gamepad"
-placement = "tab"
-command = ["./bin/herd-gamepad", "serve"]
+id = "logs"
+title = "Gamepad logs"
+placement = "overlay"
+command = ["./bin/herd-gamepad", "logs"]
 
 [[panes]]
 id = "mapping"
@@ -29,8 +29,8 @@ command = ["./bin/herd-gamepad", "mapping"]
 [[actions]]
 id = "start"
 title = "Gamepad: start"
-description = "Start listening to the controller in its own tab, unless already running."
-command = ["./bin/herd-gamepad", "ensure"]
+description = "Listen in the background, unless already running."
+command = ["./bin/herd-gamepad", "serve"]
 
 [[actions]]
 id = "setup"
@@ -43,3 +43,15 @@ id = "show-mapping"
 title = "Gamepad: show the mapping"
 description = "What each button does."
 command = ["./bin/herd-gamepad", "open-mapping"]
+
+[[actions]]
+id = "stop"
+title = "Gamepad: stop"
+description = "Stop listening and cancel active voice work."
+command = ["./bin/herd-gamepad", "stop"]
+
+[[actions]]
+id = "show-logs"
+title = "Gamepad: show logs"
+description = "Open recent daemon diagnostics."
+command = ["./bin/herd-gamepad", "open-logs"]

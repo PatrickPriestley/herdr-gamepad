@@ -65,3 +65,18 @@ fn append_capped_keeps_at_most_max_samples() {
     append_capped(&mut buf, &[9.0, 9.0], 7);
     assert_eq!(buf.len(), 7, "nothing is appended once the cap is reached");
 }
+
+#[test]
+fn wav_export_observes_cancellation_before_and_during_writing() {
+    use std::cell::Cell;
+    let path = std::env::temp_dir().join(format!("gamepad-cancel-wav-{}.wav", std::process::id()));
+    let calls = Cell::new(0);
+    let samples = vec![0.1; 10000];
+    let result = write_wav_cancellable(&path, &samples, || { calls.set(calls.get()+1); calls.get() >= 3 });
+    assert_eq!(result, Err("recording export cancelled".into()));
+    assert!(calls.get() >= 3);
+    assert!(std::fs::metadata(&path).unwrap().len() < 20000);
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(write_wav_cancellable(&path, &samples, || true), Err("recording export cancelled".into()));
+    assert!(!path.exists());
+}
