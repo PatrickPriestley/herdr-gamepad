@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: Test and build (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Install stable Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - name: Test
+        run: cargo test --locked
+      - name: Build through the plugin entrypoint
+        run: sh scripts/build.sh
+      - name: Smoke test the installed layout
+        env:
+          HERDR_PLUGIN_CONFIG_DIR: ${{ runner.temp }}/gamepad-config
+          HERDR_PLUGIN_STATE_DIR: ${{ runner.temp }}/gamepad-state
+        run: |
+          ./bin/herd-gamepad version
+          ./bin/herd-gamepad mapping < /dev/null

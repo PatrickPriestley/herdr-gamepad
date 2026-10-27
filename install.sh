@@ -20,12 +20,12 @@ if [ -e "$dest" ] && [ ! -f "$dest/$marker" ]; then
   exit 1
 fi
 if [ "$dry" = 1 ]; then
-  echo "would: build bin/herd-gamepad, copy herdr-plugin.toml README.md scripts/build.sh to $dest, then: herdr plugin link $dest"
+  echo "would: build bin/herd-gamepad, copy herdr-plugin.toml README.md LICENSE scripts/build.sh to $dest, then: herdr plugin link $dest"
   exit 0
 fi
 mkdir -p "$(dirname "$dest")"
 tmp="$(mktemp -d "$dest.new.XXXXXX")"
-cp "$src/herdr-plugin.toml" "$src/README.md" "$tmp/"
+cp "$src/herdr-plugin.toml" "$src/README.md" "$src/LICENSE" "$tmp/"
 mkdir -p "$tmp/scripts" && cp "$src/scripts/build.sh" "$tmp/scripts/build.sh"
 HERD_GAMEPAD_OUT="$tmp/bin/herd-gamepad" /bin/sh "$src/scripts/build.sh"
 ( cd "$src" && git rev-parse --short HEAD 2>/dev/null || echo unknown ) > "$tmp/$marker"

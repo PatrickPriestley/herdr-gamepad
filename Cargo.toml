@@ -5,6 +5,8 @@ edition = "2021"
 rust-version = "1.89"
 description = "Herdr plugin: drive Herdr with a game controller"
 license = "MIT"
+repository = "https://github.com/PatrickPriestley/herdr-gamepad"
+readme = "README.md"
 
 [[bin]]
 name = "herd-gamepad"

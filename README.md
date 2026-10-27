@@ -10,8 +10,24 @@ been exercised locally; other controller models need their own hardware checks.
 
 ## Install
 
-    brew install whisper-cpp        # whisper-cli
-    ./install.sh                    # builds, copies to ~/.local/share/herdr-plugins/gamepad, links it
+Requirements:
+
+- macOS and Herdr 0.9.1 or later.
+- Git, a current stable Rust toolchain (`cargo`), and Xcode Command Line Tools.
+- `whisper-cli` from Homebrew's `whisper-cpp` package.
+- A controller paired with macOS and microphone permission for the terminal app.
+
+This release builds from source; it does not include prebuilt binaries. Herdr runs the
+build script during installation, using the committed Cargo.lock.
+
+```sh
+brew install whisper-cpp
+herdr plugin install PatrickPriestley/herdr-gamepad --ref v0.1.0
+```
+
+If you previously used `./install.sh`, stop its Gamepad daemon with Ctrl-C in the
+Gamepad tab, then run `herdr plugin unlink herd.gamepad` before installing from GitHub.
+Settings and the downloaded voice model stay in Herdr's per-plugin config/state folders.
 
 Pair your controller in System Settings > Bluetooth. For Xbox, hold its pairing button;
 for PS5 DualSense, hold Create + PS until the light bar flashes. Then, in Herdr's command
@@ -60,3 +76,28 @@ To inspect a controller's events, run `herd-gamepad probe`; Ctrl-C stops it.
 ## Design
 
 `docs/plans/2026-10-27-gamepad-design.md`.
+
+## Updates and removal
+
+To install a newer release, stop the daemon with Ctrl-C in its Gamepad tab, then rerun
+`herdr plugin install PatrickPriestley/herdr-gamepad --ref <release-tag>` and invoke
+"Gamepad: start". A running daemon keeps its old executable until restarted.
+
+To remove the plugin, stop its daemon, then run `herdr plugin uninstall herd.gamepad`.
+
+## Development
+
+```sh
+git clone https://github.com/PatrickPriestley/herdr-gamepad.git
+cd herdr-gamepad
+cargo test --locked
+./install.sh
+```
+
+The development installer builds and links a local copy. CI tests and builds on Apple
+Silicon and Intel macOS; controller and microphone behaviour still needs hardware testing.
+
+## License
+
+MIT; see [LICENSE](LICENSE). Herdr, whisper.cpp, and the downloaded model have their own
+licenses and distribution terms.

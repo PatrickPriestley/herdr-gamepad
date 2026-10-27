@@ -8,6 +8,6 @@ if [ -z "${HERD_GAMEPAD_OUT:-}" ] && [ -x "$out" ] && [ ! -f "$root/Cargo.toml" 
   exit 0
 fi
 command -v cargo >/dev/null 2>&1 || { echo "herd-gamepad: cargo not found; install Rust from https://rustup.rs" >&2; exit 1; }
-( cd "$root" && cargo build --release --quiet )
+( cd "$root" && cargo build --locked --release --quiet )
 mkdir -p "$(dirname -- "$out")"
 cp "$root/target/release/herd-gamepad" "$out"
