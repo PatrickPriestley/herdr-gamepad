@@ -4,9 +4,14 @@ use crate::herdr::Runner;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 /// The capture rate. The MacBook microphone does not offer 16 kHz; whisper-cli resamples itself.
 pub const RATE: u32 = 48_000;
+
+/// How long one whisper-cli run may take. The design measured an 18 s cold start for the base
+/// model on a 60 s clip; 90 s leaves room for a slower machine without letting a hung run wedge the daemon.
+pub const WHISPER_TIMEOUT: Duration = Duration::from_secs(90);
 
 pub struct Recorder { stream: cpal::Stream, buf: Arc<Mutex<Vec<f32>>> }
 
@@ -15,16 +20,12 @@ impl Recorder {
     pub fn start(max_seconds: u64) -> Result<Self, String> {
         let dev = cpal::default_host().default_input_device().ok_or("no input device")?;
         let cfg = cpal::StreamConfig { channels: 1, sample_rate: RATE, buffer_size: cpal::BufferSize::Default };
-        let buf: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
         let max = max_seconds as usize * RATE as usize;
+        let buf: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::with_capacity(max)));
         let sink = buf.clone();
         let stream = dev.build_input_stream(
             cfg,
-            move |data: &[f32], _| {
-                let mut v = sink.lock().unwrap();
-                let room = max.saturating_sub(v.len());
-                v.extend_from_slice(&data[..data.len().min(room)]);
-            },
+            move |data: &[f32], _| append_capped(&mut sink.lock().unwrap(), data, max),
             |e| eprintln!("herd-gamepad: recorder: {e}"),
             None,
         ).map_err(|e| format!("input stream: {e}"))?;
@@ -35,9 +36,15 @@ impl Recorder {
     pub fn stop(self) -> Vec<f32> {
         let Recorder { stream, buf } = self;
         drop(stream);
-        let v = buf.lock().unwrap().clone();
+        let v = std::mem::take(&mut *buf.lock().unwrap());
         v
     }
+}
+
+/// Appends `data` to `buf` without letting it grow past `max` samples.
+pub fn append_capped(buf: &mut Vec<f32>, data: &[f32], max: usize) {
+    let room = max.saturating_sub(buf.len());
+    buf.extend_from_slice(&data[..data.len().min(room)]);
 }
 
 pub fn long_enough(samples: usize) -> bool { samples >= RATE as usize * 3 / 10 }
@@ -46,7 +53,7 @@ pub fn write_wav(path: &Path, samples: &[f32]) -> Result<(), String> {
     let spec = hound::WavSpec { channels: 1, sample_rate: RATE, bits_per_sample: 16, sample_format: hound::SampleFormat::Int };
     let mut w = hound::WavWriter::create(path, spec).map_err(|e| e.to_string())?;
     for s in samples {
-        w.write_sample((s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16).map_err(|e| e.to_string())?;
+        w.write_sample((s * i16::MAX as f32) as i16).map_err(|e| e.to_string())?;
     }
     w.finalize().map_err(|e| e.to_string())
 }

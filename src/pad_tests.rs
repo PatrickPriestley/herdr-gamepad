@@ -29,9 +29,11 @@ fn unknown_buttons_are_ignored() {
 fn analog_triggers_press_past_0_6_and_release_under_0_4() {
     let mut p = Pad::new();
     assert_eq!(p.input(Raw::Changed(Button::LeftTrigger2, 0.3)), None);
+    assert_eq!(p.input(Raw::Changed(Button::LeftTrigger2, 0.59)), None, "just under the press threshold");
     assert_eq!(p.input(Raw::Changed(Button::LeftTrigger2, 0.6)), Some(Input::Press(Btn::Lt)));
     assert_eq!(p.input(Raw::Changed(Button::LeftTrigger2, 0.9)), None, "no repeat while held");
     assert_eq!(p.input(Raw::Changed(Button::LeftTrigger2, 0.5)), None, "hysteresis: not released yet");
+    assert_eq!(p.input(Raw::Changed(Button::LeftTrigger2, 0.41)), None, "just over the release threshold");
     assert_eq!(p.input(Raw::Changed(Button::LeftTrigger2, 0.4)), Some(Input::Release(Btn::Lt)));
     assert_eq!(p.input(Raw::Changed(Button::RightTrigger2, 1.0)), Some(Input::Press(Btn::Rt)));
     assert_eq!(p.input(Raw::Changed(Button::RightTrigger2, 0.0)), Some(Input::Release(Btn::Rt)));
@@ -49,4 +51,14 @@ fn connection_events_pass_through() {
     let mut p = Pad::new();
     assert_eq!(p.input(Raw::Connected), Some(Input::Connected));
     assert_eq!(p.input(Raw::Disconnected), Some(Input::Disconnected));
+}
+
+#[test]
+fn disconnecting_resets_the_triggers() {
+    let mut p = Pad::new();
+    assert_eq!(p.input(Raw::Changed(Button::LeftTrigger2, 1.0)), Some(Input::Press(Btn::Lt)));
+    assert_eq!(p.input(Raw::Changed(Button::RightTrigger2, 1.0)), Some(Input::Press(Btn::Rt)));
+    assert_eq!(p.input(Raw::Disconnected), Some(Input::Disconnected));
+    assert_eq!(p.input(Raw::Changed(Button::LeftTrigger2, 1.0)), Some(Input::Press(Btn::Lt)), "a reconnected pad starts with its triggers up");
+    assert_eq!(p.input(Raw::Changed(Button::RightTrigger2, 1.0)), Some(Input::Press(Btn::Rt)));
 }

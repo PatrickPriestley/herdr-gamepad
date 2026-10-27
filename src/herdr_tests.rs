@@ -171,29 +171,29 @@ fn hyphen_leading_text_is_passed_as_is_without_a_double_dash() {
 
 #[test]
 fn cli_returns_stdout_on_success() {
-    assert_eq!(Cli.run(&["sh", "-c", "echo hi"]), Ok("hi\n".to_string()));
+    assert_eq!(Cli::default().run(&["sh", "-c", "echo hi"]), Ok("hi\n".to_string()));
 }
 
 #[test]
 fn cli_returns_stderr_on_failure() {
-    assert_eq!(Cli.run(&["sh", "-c", "echo bad >&2; exit 1"]), Err("bad".to_string()));
+    assert_eq!(Cli::default().run(&["sh", "-c", "echo bad >&2; exit 1"]), Err("bad".to_string()));
 }
 
 #[test]
 fn cli_reports_a_missing_binary() {
-    let err = Cli.run(&["/nonexistent/xyz"]).unwrap_err();
+    let err = Cli::default().run(&["/nonexistent/xyz"]).unwrap_err();
     assert!(err.contains("xyz"), "{err}");
 }
 
 #[test]
 fn cli_falls_back_to_the_exit_status_when_stderr_is_empty() {
-    let err = Cli.run(&["sh", "-c", "exit 3"]).unwrap_err();
+    let err = Cli::default().run(&["sh", "-c", "exit 3"]).unwrap_err();
     assert!(!err.is_empty() && err.contains("3"), "{err:?}");
 }
 
 #[test]
 fn cli_rejects_empty_argv() {
-    assert_eq!(Cli.run(&[]), Err("empty argv".to_string()));
+    assert_eq!(Cli::default().run(&[]), Err("empty argv".to_string()));
 }
 
 #[test]
@@ -204,4 +204,13 @@ fn cli_times_out() {
     assert!(err.contains("timed out"), "{err}");
     assert!(took < Duration::from_secs(2), "took {took:?}");
     eprintln!("cli_times_out took {took:?}");
+}
+
+#[test]
+fn cli_timeout_is_configurable() {
+    let started = Instant::now();
+    let err = Cli { timeout: Duration::from_millis(200) }.run(&["sh", "-c", "sleep 5"]).unwrap_err();
+    let took = started.elapsed();
+    assert!(err.contains("timed out"), "{err}");
+    assert!(took < Duration::from_secs(2), "took {took:?}");
 }

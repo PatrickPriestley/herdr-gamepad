@@ -28,26 +28,50 @@ pub fn dirs_from(state: Option<PathBuf>, config: Option<PathBuf>, home: &str) ->
 
 pub fn load() -> Result<(Config, PathBuf), String> {
     let (state, config) = dirs();
-    let text = std::fs::read_to_string(config.join("config.toml")).unwrap_or_default();
-    Ok((parse(&text, &state)?, state))
+    Ok((load_from(&config, &state)?, state))
+}
+
+/// The config in `config_dir`; a missing config.toml means the defaults, any other read error is reported.
+pub fn load_from(config_dir: &Path, state: &Path) -> Result<Config, String> {
+    let text = match std::fs::read_to_string(config_dir.join("config.toml")) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("config.toml: {e}")),
+    };
+    parse(&text, state)
 }
 
 pub fn parse(text: &str, state: &Path) -> Result<Config, String> {
     let t: toml::Table = text.parse().map_err(|e| format!("config.toml: {e}"))?;
-    let get = |a: &str, b: &str| t.get(a).and_then(|v| v.get(b));
-    let model = match get("whisper", "model").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+    let model = match string(&t, "whisper", "model")?.filter(|s| !s.is_empty()) {
         Some(s) => expand(s),
         None => state.join("models/ggml-base.en.bin"),
     };
-    let language = get("whisper", "language").and_then(|v| v.as_str()).unwrap_or("en").to_string();
-    let voice_button = match get("voice", "button").and_then(|v| v.as_str()).unwrap_or("rstick") {
+    let language = string(&t, "whisper", "language")?.unwrap_or("en").to_string();
+    let voice_button = match string(&t, "voice", "button")?.unwrap_or("rstick") {
         "rstick" => Btn::RStick,
         "lstick" => Btn::LStick,
         "menu" => Btn::Menu,
         other => return Err(format!("config.toml: voice.button {other:?} is not one of rstick, lstick, menu")),
     };
-    let max_seconds = get("voice", "max_seconds").and_then(|v| v.as_integer()).unwrap_or(60).max(1) as u64;
+    let max_seconds = integer(&t, "voice", "max_seconds")?.unwrap_or(60).clamp(1, 3600) as u64;
     Ok(Config { model, language, voice_button, max_seconds })
+}
+
+/// `[a] b` as a string: None when absent, an error when present with another type.
+fn string<'t>(t: &'t toml::Table, a: &str, b: &str) -> Result<Option<&'t str>, String> {
+    match t.get(a).and_then(|v| v.get(b)) {
+        None => Ok(None),
+        Some(v) => v.as_str().map(Some).ok_or_else(|| format!("config.toml: {a}.{b} must be a string")),
+    }
+}
+
+/// `[a] b` as an integer: None when absent, an error when present with another type.
+fn integer(t: &toml::Table, a: &str, b: &str) -> Result<Option<i64>, String> {
+    match t.get(a).and_then(|v| v.get(b)) {
+        None => Ok(None),
+        Some(v) => v.as_integer().map(Some).ok_or_else(|| format!("config.toml: {a}.{b} must be an integer")),
+    }
 }
 
 fn expand(s: &str) -> PathBuf {

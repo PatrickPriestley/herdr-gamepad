@@ -51,3 +51,28 @@ fn dirs_follow_the_herdr_plugin_env_overrides() {
     assert_eq!(state, Path::new("/home/x/.local/state/herdr/plugins/herd.gamepad"));
     assert_eq!(config, Path::new("/home/x/.config/herdr/plugins/config/herd.gamepad"));
 }
+
+#[test]
+fn max_seconds_is_at_most_an_hour() {
+    assert_eq!(parse("[voice]\nmax_seconds = 10000\n", &state()).unwrap().max_seconds, 3600);
+}
+
+#[test]
+fn a_wrongly_typed_value_is_an_error_not_a_default() {
+    assert_eq!(parse("[voice]\nmax_seconds = 20.0\n", &state()).unwrap_err(), "config.toml: voice.max_seconds must be an integer");
+    assert_eq!(parse("[voice]\nmax_seconds = \"20\"\n", &state()).unwrap_err(), "config.toml: voice.max_seconds must be an integer");
+    assert_eq!(parse("[voice]\nbutton = 1\n", &state()).unwrap_err(), "config.toml: voice.button must be a string");
+    assert_eq!(parse("[whisper]\nmodel = 5\n", &state()).unwrap_err(), "config.toml: whisper.model must be a string");
+    assert_eq!(parse("[whisper]\nlanguage = 5\n", &state()).unwrap_err(), "config.toml: whisper.language must be a string");
+}
+
+#[test]
+fn load_from_treats_a_missing_file_as_defaults_but_reports_other_read_errors() {
+    let dir = std::env::temp_dir().join(format!("herd-gamepad-config-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    assert_eq!(load_from(&dir, &state()), parse("", &state()), "no config.toml means the defaults");
+    std::fs::create_dir_all(dir.join("config.toml")).unwrap();
+    let err = load_from(&dir, &state()).unwrap_err();
+    assert!(err.starts_with("config.toml:"), "{err}");
+    std::fs::remove_dir_all(&dir).unwrap();
+}

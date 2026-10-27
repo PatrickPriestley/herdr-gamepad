@@ -16,10 +16,15 @@ impl<R: Runner> Runner for &R {
     fn run(&self, argv: &[&str]) -> Result<String, String> { (*self).run(argv) }
 }
 
-pub struct Cli;
+/// The real runner: a child process, killed if it outlives `timeout`.
+pub struct Cli { pub timeout: Duration }
+
+impl Default for Cli {
+    fn default() -> Self { Cli { timeout: Duration::from_secs(10) } }
+}
 
 impl Runner for Cli {
-    fn run(&self, argv: &[&str]) -> Result<String, String> { run_with_timeout(argv, Duration::from_secs(10)) }
+    fn run(&self, argv: &[&str]) -> Result<String, String> { run_with_timeout(argv, self.timeout) }
 }
 
 /// Runs argv: Ok(stdout) on exit 0; Err(stderr, or the exit status when stderr is empty) otherwise.

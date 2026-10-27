@@ -19,10 +19,11 @@ pub fn raw(ev: &EventType) -> Option<Raw> {
 }
 
 /// Tracks the analog triggers so each crosses into a press once and out of it once.
+#[derive(Default)]
 pub struct Pad { lt: bool, rt: bool }
 
 impl Pad {
-    pub fn new() -> Self { Pad { lt: false, rt: false } }
+    pub fn new() -> Self { Self::default() }
 
     pub fn input(&mut self, r: Raw) -> Option<Input> {
         match r {
@@ -33,7 +34,7 @@ impl Pad {
             Raw::Released(b) if !is_analog(b) => btn(b).map(Input::Release),
             Raw::Pressed(_) | Raw::Released(_) => None,
             Raw::Connected => Some(Input::Connected),
-            Raw::Disconnected => Some(Input::Disconnected),
+            Raw::Disconnected => { self.lt = false; self.rt = false; Some(Input::Disconnected) }
         }
     }
 }
@@ -71,10 +72,11 @@ pub fn probe() -> Result<(), String> {
     let mut g = gilrs::Gilrs::new().map_err(|e| format!("gilrs: {e}"))?;
     for (_, gp) in g.gamepads() { println!("connected: {} ({:?})", gp.name(), gp.mapping_source()); }
     println!("press buttons; Ctrl-C to stop");
+    let mut pad = Pad::new();
     loop {
         if let Some(ev) = g.next_event_blocking(Some(std::time::Duration::from_millis(500))) {
             let r = raw(&ev.event);
-            println!("{:?} -> {:?}", ev.event, r.and_then(|r| Pad::new().input(r)));
+            println!("{:?} -> {:?}", ev.event, r.and_then(|r| pad.input(r)));
         }
     }
 }
