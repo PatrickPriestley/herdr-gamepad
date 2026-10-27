@@ -9,6 +9,9 @@ mod herdr_tests;
 mod config;
 #[cfg(test)]
 mod config_tests;
+mod voice;
+#[cfg(test)]
+mod voice_tests;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
