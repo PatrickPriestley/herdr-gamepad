@@ -88,6 +88,13 @@ impl Core {
             _ => None,
         };
         if let Some(actions) = nav { return self.leave_respond(actions); }
+        let blocked = agent_pane.map_or(false, |p| p.status == Some(Status::Blocked));
+        if self.mode == Mode::Navigate && blocked && matches!(b, Btn::Up | Btn::Down | Btn::Left | Btn::Right) {
+            self.mode = Mode::Respond;
+            let mut out = vec![toast("Respond mode", "the agent is waiting for you", Sound::None)];
+            out.extend(self.respond(b, agent_pane));
+            return out;
+        }
         match self.mode {
             Mode::Navigate => match b {
                 Btn::Up | Btn::Down | Btn::Left | Btn::Right => focused

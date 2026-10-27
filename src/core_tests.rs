@@ -211,3 +211,35 @@ fn menu_and_stick_clicks_do_nothing_in_either_mode() {
     assert_eq!(c.handle(Input::Press(Btn::Menu), &snap()), vec![]);
     assert_eq!(c.handle(Input::Press(Btn::LStick), &snap()), vec![]);
 }
+
+fn blocked() -> Snapshot {
+    Snapshot { focused: Some(pane("w5:p1", Some("claude"), Some(Status::Blocked))), ..snap() }
+}
+
+#[test]
+fn dpad_on_a_blocked_agent_switches_to_respond_and_sends_the_key() {
+    let mut c = core();
+    let out = c.handle(Input::Press(Btn::Down), &blocked());
+    assert_eq!(c.mode(), Mode::Respond);
+    assert_eq!(out, vec![
+        toast("Respond mode", "the agent is waiting for you", Sound::None),
+        Action::SendKeys { target: "w5:p1".into(), keys: vec![Key::Down] },
+    ]);
+}
+
+#[test]
+fn a_on_a_blocked_agent_only_enters_respond_mode() {
+    // An approval is always two deliberate presses: A to enter Respond, A again to confirm.
+    let mut c = core();
+    let out = c.handle(Input::Press(Btn::A), &blocked());
+    assert_eq!(c.mode(), Mode::Respond);
+    assert!(!out.iter().any(|a| matches!(a, Action::SendKeys { .. })), "{out:?}");
+}
+
+#[test]
+fn dpad_on_a_working_agent_still_moves_focus() {
+    let mut c = core();
+    let s = Snapshot { focused: Some(pane("w5:p1", Some("claude"), Some(Status::Working))), ..snap() };
+    assert_eq!(c.handle(Input::Press(Btn::Down), &s), vec![Action::FocusDirection { pane_id: "w5:p1".into(), dir: Dir::Down }]);
+    assert_eq!(c.mode(), Mode::Navigate);
+}
