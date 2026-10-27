@@ -16,7 +16,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [macos-15, macos-15-intel]
+        include:
+          - runner: macos-15
+            target: aarch64-apple-darwin
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 20
     steps:
@@ -32,6 +36,8 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_release*.py'
           cargo test --locked
       - name: Build through the plugin entrypoint
+        env:
+          HERD_GAMEPAD_BUILD: source
         run: sh tests/build.sh && sh scripts/build.sh
       - name: Smoke test the installed layout
         env:
@@ -40,6 +46,19 @@ jobs:
         run: |
           ./bin/herd-gamepad version
           ./bin/herd-gamepad mapping < /dev/null
+      - name: Package the release binary and its checksum
+        run: |
+          asset=herd-gamepad-${{ matrix.target }}.tar.gz
+          mkdir -p dist
+          tar -czf "dist/$asset" -C target/release herd-gamepad
+          (cd dist && shasum -a 256 "$asset" > "$asset.sha256")
+          cat "dist/$asset.sha256"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: herd-gamepad-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
 
   publish:
     name: Publish release
@@ -58,7 +77,21 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: herd-gamepad-*
+          path: dist
+          merge-multiple: true
       - name: Publish verified source release
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/publish_release.py
+      - name: Attach the macOS binaries to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          ls -l dist
+          set -- dist/herd-gamepad-*.tar.gz; test "$#" -eq 2
+          set -- dist/herd-gamepad-*.tar.gz.sha256; test "$#" -eq 2
+          gh release upload "$TAG" dist/herd-gamepad-*.tar.gz dist/herd-gamepad-*.tar.gz.sha256 --repo "$GITHUB_REPOSITORY" --clobber
