@@ -14,7 +14,8 @@ Triangle. Tested by hand on a DualSense; other controllers are untested.
 Requirements:
 
 - macOS and Herdr 0.9.1 or later.
-- Git. A Rust toolchain (`cargo`) is needed only when no prebuilt binary matches your Mac.
+- Git. A Rust toolchain (`cargo`) and the Xcode Command Line Tools are needed only when no
+  prebuilt binary matches your Mac: the fallback build links with the system linker.
 - `whisper-cli` from Homebrew's `whisper-cpp` package.
 - A controller paired with macOS and microphone permission for the terminal app.
 
