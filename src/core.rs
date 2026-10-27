@@ -80,6 +80,10 @@ impl Core {
             Btn::Up | Btn::Down | Btn::Left | Btn::Right => focused
                 .map(|p| vec![Action::FocusDirection { pane_id: p.pane_id.clone(), dir: dir_of(b) }])
                 .unwrap_or_default(),
+            Btn::Lb => step_workspace(snap, -1),
+            Btn::Rb => step_workspace(snap, 1),
+            Btn::Lt => step_tab(snap, -1),
+            Btn::Rt => step_tab(snap, 1),
             _ => vec![],
         }
     }
@@ -87,4 +91,28 @@ impl Core {
 
 fn dir_of(b: Btn) -> Dir {
     match b { Btn::Up => Dir::Up, Btn::Down => Dir::Down, Btn::Left => Dir::Left, _ => Dir::Right }
+}
+
+/// The space `delta` places from the focused one in sidebar order, wrapping.
+fn step_workspace(snap: &Snapshot, delta: i32) -> Vec<Action> {
+    let mut ws: Vec<&Workspace> = snap.workspaces.iter().collect();
+    ws.sort_by_key(|w| w.number);
+    step(ws.len(), ws.iter().position(|w| w.focused), delta)
+        .map(|j| vec![Action::FocusWorkspace(ws[j].id.clone())])
+        .unwrap_or_default()
+}
+
+fn step_tab(snap: &Snapshot, delta: i32) -> Vec<Action> {
+    let mut tabs: Vec<&Tab> = snap.tabs.iter().collect();
+    tabs.sort_by_key(|t| t.number);
+    step(tabs.len(), tabs.iter().position(|t| t.focused), delta)
+        .map(|j| vec![Action::FocusTab(tabs[j].id.clone())])
+        .unwrap_or_default()
+}
+
+/// The index `delta` away from `current` in a ring of `len`, or None when there is nowhere to go.
+fn step(len: usize, current: Option<usize>, delta: i32) -> Option<usize> {
+    if len < 2 { return None; }
+    let i = current? as i32;
+    Some((i + delta).rem_euclid(len as i32) as usize)
 }

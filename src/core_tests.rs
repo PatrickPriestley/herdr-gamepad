@@ -51,3 +51,40 @@ fn dpad_with_no_focused_pane_does_nothing() {
 fn releases_of_ordinary_buttons_do_nothing() {
     assert_eq!(core().handle(Input::Release(Btn::Up), &snap()), vec![]);
 }
+
+#[test]
+fn bumpers_step_spaces_by_number_and_wrap() {
+    let mut c = core();
+    assert_eq!(c.handle(Input::Press(Btn::Rb), &snap()), vec![Action::FocusWorkspace("w7".into())]);
+    assert_eq!(c.handle(Input::Press(Btn::Lb), &snap()), vec![Action::FocusWorkspace("w0".into())], "previous from #1 wraps to #3");
+    let mut s = snap();
+    for w in &mut s.workspaces { w.focused = w.id == "w0"; }
+    assert_eq!(c.handle(Input::Press(Btn::Rb), &s), vec![Action::FocusWorkspace("w5".into())], "next from #3 wraps to #1");
+}
+
+#[test]
+fn bumpers_use_sidebar_numbers_not_list_order() {
+    let mut s = snap();
+    s.workspaces.reverse();
+    assert_eq!(core().handle(Input::Press(Btn::Rb), &s), vec![Action::FocusWorkspace("w7".into())]);
+}
+
+#[test]
+fn bumpers_do_nothing_with_one_space_or_no_focused_space() {
+    let mut s = snap();
+    s.workspaces.truncate(1);
+    assert_eq!(core().handle(Input::Press(Btn::Rb), &s), vec![]);
+    let mut s = snap();
+    for w in &mut s.workspaces { w.focused = false; }
+    assert_eq!(core().handle(Input::Press(Btn::Rb), &s), vec![]);
+}
+
+#[test]
+fn triggers_step_tabs_and_wrap() {
+    let mut c = core();
+    assert_eq!(c.handle(Input::Press(Btn::Rt), &snap()), vec![Action::FocusTab("w5:t7".into())]);
+    assert_eq!(c.handle(Input::Press(Btn::Lt), &snap()), vec![Action::FocusTab("w5:t7".into())], "previous from the first wraps to the last");
+    let mut s = snap();
+    s.tabs.truncate(1);
+    assert_eq!(c.handle(Input::Press(Btn::Rt), &s), vec![], "one tab: nothing to step to");
+}
