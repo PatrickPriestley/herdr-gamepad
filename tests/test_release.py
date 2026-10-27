@@ -6,12 +6,22 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+
+from release_test_env import isolated_release_environment
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("publish_release", ROOT / "scripts/publish_release.py")
 release = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(release)
+# Even a mutated __main__ guard cannot use the host's release context during import.
+import_error = None
+with isolated_release_environment() as environment, patch.dict(os.environ, environment, clear=True):
+    try:
+        spec.loader.exec_module(release)
+    except (SyntaxError, ImportError):
+        raise
+    except (Exception, SystemExit) as error:
+        import_error = error
 
 
 class ReleaseTests(unittest.TestCase):
@@ -49,6 +59,9 @@ class ReleaseTests(unittest.TestCase):
 
     def publish(self):
         return release.publish(self.root, self.env, self.run)
+
+    def test_import_does_not_execute_publisher(self):
+        self.assertIsNone(import_error, f"import executed the publisher: {import_error!r}")
 
     def test_success_creates_verified_source_release(self):
         self.assertEqual(self.publish(), "published v1.2.3")
@@ -111,8 +124,8 @@ class ReleaseTests(unittest.TestCase):
                 self.publish()
 
     def test_cli_refuses_non_tag_events(self):
-        env = dict(os.environ, GITHUB_EVENT_NAME="workflow_dispatch", GITHUB_REF="refs/tags/v0.1.0")
-        result = subprocess.run([sys.executable, str(ROOT / "scripts/publish_release.py")], env=env, capture_output=True, text=True)
+        with isolated_release_environment() as env:
+            result = subprocess.run([sys.executable, str(ROOT / "scripts/publish_release.py")], env=env, capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("tag push", result.stderr)
 
@@ -131,7 +144,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn("run: python3 scripts/publish_release.py", publish)
         self.assertNotIn("always()", publish)
         self.assertNotIn("continue-on-error", text)
-        self.assertIn("python3 -m unittest discover -s tests -p 'test_release.py'", before)
+        self.assertIn("python3 -m unittest discover -s tests -p 'test_release*.py'", before)
 
 
 if __name__ == "__main__":

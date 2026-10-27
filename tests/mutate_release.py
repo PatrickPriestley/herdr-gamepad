@@ -7,6 +7,8 @@ import subprocess
 import sys
 import tempfile
 
+from release_test_env import isolated_release_environment
+
 ROOT = Path(__file__).resolve().parents[1]
 source = (ROOT / "scripts/publish_release.py").read_text()
 tree = ast.parse(source)
@@ -46,7 +48,9 @@ with tempfile.TemporaryDirectory(prefix="release-mutants-") as temporary:
     for file in ["Cargo.toml", "Cargo.lock", "herdr-plugin.toml"]:
         shutil.copy2(ROOT / file, root / file)
     def run():
-        return subprocess.run([sys.executable, "-B", "-m", "unittest", "discover", "-s", "tests", "-p", "test_release.py"], cwd=root, capture_output=True, text=True, timeout=15)
+        # Deliberately exclude test_release_isolation.py: it runs this tool itself.
+        with isolated_release_environment() as env:
+            return subprocess.run([sys.executable, "-B", "-m", "unittest", "discover", "-s", "tests", "-p", "test_release.py"], cwd=root, env=env, capture_output=True, text=True, timeout=15)
     baseline = run()
     if baseline.returncode:
         sys.exit(baseline.stdout + baseline.stderr)
@@ -55,8 +59,14 @@ with tempfile.TemporaryDirectory(prefix="release-mutants-") as temporary:
         changed = copy.deepcopy(tree)
         setattr(list(ast.walk(changed))[index], field, copy.deepcopy(value))
         path = root / "scripts/publish_release.py"
-        path.write_text(ast.unparse(ast.fix_missing_locations(changed)))
+        mutated_source = ast.unparse(ast.fix_missing_locations(changed))
+        compile(mutated_source, str(path), "exec")
+        path.write_text(mutated_source)
         result = run()
+        test_failure = "\nFAIL: test_" in result.stderr or "\nERROR: test_" in result.stderr
+        loader_failure = "unittest.loader._FailedTest" in result.stderr
+        if result.returncode != 0 and (not test_failure or loader_failure):
+            sys.exit(f"Mutation failed outside a running test; not counted: {name}\n{result.stdout}{result.stderr}")
         if result.returncode == 0:
             survived.append(name)
         print(("SURVIVED " if result.returncode == 0 else "caught ") + name)

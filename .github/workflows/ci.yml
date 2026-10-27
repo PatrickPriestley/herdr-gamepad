@@ -29,7 +29,7 @@ jobs:
           rustup default stable
       - name: Test
         run: |
-          python3 -m unittest discover -s tests -p 'test_release.py'
+          python3 -m unittest discover -s tests -p 'test_release*.py'
           cargo test --locked
       - name: Build through the plugin entrypoint
         run: sh tests/build.sh && sh scripts/build.sh

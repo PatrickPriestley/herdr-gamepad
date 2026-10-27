@@ -391,3 +391,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/publish_release.py
 ```
+
+## Review correction: isolate release test processes
+
+Independent quality review reproduced a test-harness escape from the original plan: inherited Git and GitHub Actions variables allowed mutated publisher code to reach release creation. A regression first established a positive control using a temporary Git repository, local bare origin, and recording `gh` stub. Before the fix, its assertion failed with three recorded release-create calls and a surviving `__main__` mutation. No GitHub release was created.
+
+The implementation now gives import, CLI, and mutation execution a fresh allowlisted environment with a non-publishing event context and inert `git` and `gh` executables first on PATH. The functional publisher tests retain their injected fake runner. An explicit import assertion catches the removed main guard. The mutation runner rejects syntax, loader, and infrastructure failures as evidence while accepting failures raised within running tests. CI discovers the adversarial regression; mutation children run only ordinary publisher tests to avoid recursion.
+
+This intentionally diverges from the assembled test code above to address the verified review finding. The production publisher and publishing conditions are unchanged. Validation: 12 Python tests, including the hostile inherited-environment regression, and all 33 publisher guard mutations pass; actionlint and whitespace checks pass.
