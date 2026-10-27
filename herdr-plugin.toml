@@ -26,6 +26,14 @@ title = "Gamepad mapping"
 placement = "overlay"
 command = ["./bin/herd-gamepad", "mapping"]
 
+[[panes]]
+id = "close-menu"
+title = "Gamepad close actions"
+placement = "popup"
+width = 64
+height = 12
+command = ["./bin/herd-gamepad", "close-menu"]
+
 [[actions]]
 id = "start"
 title = "Gamepad: start"

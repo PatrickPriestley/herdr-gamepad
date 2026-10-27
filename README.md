@@ -69,16 +69,31 @@ The card also shows your configured voice button.
 | Left / right trigger | LT / RT | L2 / R2 | Previous / next tab |
 | Back / Select | View | Create (PS5) / Share (PS4) | Return to Navigate |
 | Right stick click | Right stick click | R3 | Hold to dictate (default) |
+| Menu / Options | Menu | Options | Open close actions |
 
 D-pad moves between panes in Navigate, and between options in Respond. On a blocked
 agent, D-pad automatically enters Respond. Each confirmation requires acknowledgement
-first; follow the on-screen prompt. Face-button positions always determine actions,
+first; press the bottom face button again to confirm. Face-button positions always determine actions,
 even on controllers with different lettering.
 
 Release the voice button to transcribe and automatically submit to an idle, done, or
 working agent—no extra Enter or controller press is needed. If focus changed, the pane
 has no agent, or the agent is blocked at a dialog or in an unknown state, the transcript
 is not sent.
+
+To close a pane or space, press **Menu / Options** to open the live close-actions popup. Press the
+**left face button (X / Square)** to select Close pane, or the **top face button
+(Y / Triangle)** to select Close space. Wait for the selected target to appear in the popup, then press the
+**bottom face button (A / Cross)** to confirm. **Right face (B / Circle)**,
+**Back / Select**, or the menu button cancels. Closing stops running processes in that
+pane or space; closing a space includes all its panes and tabs, not its workspace group.
+Closing the popup, a focus change, or a controller disconnect cancels the pending action. Finish dictation
+before opening close actions. If `[voice] button = "menu"`, use **left stick click
+(L3)** to open/cancel close actions instead.
+
+Routine mode and successful-send feedback goes to Gamepad logs rather than notification popups.
+Errors notify at most once every five seconds; every error is still logged. Herdr may delay an
+error behind notifications from other plugins; close confirmation uses its own current display.
 
 To inspect a controller's events, run `herd-gamepad probe`; Ctrl-C stops it.
 

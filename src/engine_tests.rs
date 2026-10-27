@@ -218,12 +218,10 @@ fn respond_mode_with_no_agent_in_the_focused_pane_falls_back_to_navigate() {
 }
 
 #[test]
-fn menu_and_stick_clicks_do_nothing_in_either_mode() {
+fn unused_stick_click_does_nothing_in_either_mode() {
     let mut c = core();
-    assert_eq!(c.handle(Input::Press(Btn::Menu), &snap()), vec![]);
     assert_eq!(c.handle(Input::Press(Btn::LStick), &snap()), vec![]);
     let mut c = in_respond();
-    assert_eq!(c.handle(Input::Press(Btn::Menu), &snap()), vec![]);
     assert_eq!(c.handle(Input::Press(Btn::LStick), &snap()), vec![]);
 }
 
@@ -237,11 +235,11 @@ fn dpad_on_a_blocked_agent_switches_to_respond_and_sends_the_key() {
     let out = c.handle(Input::Press(Btn::Down), &blocked());
     assert_eq!(c.mode(), Mode::Respond);
     assert_eq!(out, vec![
-        toast("Respond mode", "the agent is waiting for you", Sound::Request),
+        toast("Respond mode", "the agent is waiting for you", Sound::None),
         Action::SendKeys { target: "w5:p1".into(), keys: vec![Key::Down] },
     ]);
     // The press that switched modes was aimed at moving focus, not at the dialog: it is no acknowledgement.
-    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("The agent is waiting", "press the bottom face button again to confirm", Sound::Request)]);
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("The agent is waiting", "press the bottom face button again to confirm", Sound::None)]);
     assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), keys("w5:p1", Key::Enter));
 }
 
@@ -251,7 +249,7 @@ fn a_on_a_blocked_agent_only_enters_respond_mode() {
     let mut c = core();
     let out = c.handle(Input::Press(Btn::A), &blocked());
     assert_eq!(c.mode(), Mode::Respond);
-    assert_eq!(out, vec![toast("Respond mode", "agent waiting; press the bottom face button again to confirm", Sound::Request)]);
+    assert_eq!(out, vec![toast("Respond mode", "agent waiting; press the bottom face button again to confirm", Sound::None)]);
     assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), keys("w5:p1", Key::Enter), "the second A confirms");
 }
 
@@ -397,7 +395,7 @@ fn respond_leaves_when_focus_moves_to_another_pane() {
     let s = Snapshot { focused: Some(pane("w5:p2", Some("claude"), Some(Status::Blocked))), ..snap() };
     assert_eq!(c.handle(Input::Press(Btn::A), &s), focus_moved());
     assert_eq!(c.mode(), Mode::Navigate);
-    assert_eq!(c.handle(Input::Press(Btn::A), &s), vec![toast("Respond mode", "agent waiting; press the bottom face button again to confirm", Sound::Request)], "A in Navigate enters Respond on the new pane without sending Enter");
+    assert_eq!(c.handle(Input::Press(Btn::A), &s), vec![toast("Respond mode", "agent waiting; press the bottom face button again to confirm", Sound::None)], "A in Navigate enters Respond on the new pane without sending Enter");
 }
 
 #[test]
@@ -429,7 +427,7 @@ fn each_dialog_needs_its_own_acknowledgement() {
     // The agent works again; keys still go through.
     assert_eq!(c.handle(Input::Press(Btn::Down), &working()), keys("w5:p1", Key::Down));
     // Dialog 2: the first A is swallowed, the second confirms.
-    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("The agent is waiting", "press the bottom face button again to confirm", Sound::Request)]);
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("The agent is waiting", "press the bottom face button again to confirm", Sound::None)]);
     assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), keys("w5:p1", Key::Enter));
     assert_eq!(c.mode(), Mode::Respond);
 }
@@ -437,7 +435,7 @@ fn each_dialog_needs_its_own_acknowledgement() {
 #[test]
 fn a_on_a_dialog_that_appeared_after_entering_respond_is_swallowed_once() {
     let mut c = in_respond();
-    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("The agent is waiting", "press the bottom face button again to confirm", Sound::Request)]);
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("The agent is waiting", "press the bottom face button again to confirm", Sound::None)]);
     assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), keys("w5:p1", Key::Enter));
 }
 
@@ -455,7 +453,7 @@ fn consecutive_a_presses_on_an_acknowledged_dialog_alternate_between_enter_and_a
     let mut c = in_respond();
     assert_eq!(c.handle(Input::Press(Btn::Down), &blocked()), keys("w5:p1", Key::Down));
     assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), keys("w5:p1", Key::Enter));
-    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("The agent is waiting", "press the bottom face button again to confirm", Sound::Request)]);
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("The agent is waiting", "press the bottom face button again to confirm", Sound::None)]);
     assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), keys("w5:p1", Key::Enter));
 }
 
@@ -464,7 +462,7 @@ fn an_enter_after_a_dpad_acknowledgement_spends_it() {
     let mut c = in_respond();
     c.handle(Input::Press(Btn::Down), &blocked());
     c.handle(Input::Press(Btn::A), &blocked());
-    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("The agent is waiting", "press the bottom face button again to confirm", Sound::Request)], "nothing was pressed since the Enter");
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("The agent is waiting", "press the bottom face button again to confirm", Sound::None)], "nothing was pressed since the Enter");
 }
 
 #[test]
@@ -472,7 +470,7 @@ fn an_enter_after_entering_on_a_blocked_pane_spends_the_acknowledgement() {
     let mut c = core();
     c.handle(Input::Press(Btn::A), &blocked());
     assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), keys("w5:p1", Key::Enter));
-    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("The agent is waiting", "press the bottom face button again to confirm", Sound::Request)]);
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("The agent is waiting", "press the bottom face button again to confirm", Sound::None)]);
     assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), keys("w5:p1", Key::Enter));
 }
 
@@ -484,7 +482,7 @@ fn disconnecting_leaves_respond_and_forgets_the_acknowledgement() {
     assert_eq!(c.mode(), Mode::Navigate);
     assert_eq!(c.handle(Input::Connected, &blocked()), vec![toast("Controller connected", "", Sound::None)]);
     assert_eq!(c.mode(), Mode::Navigate);
-    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("Respond mode", "agent waiting; press the bottom face button again to confirm", Sound::Request)]);
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("Respond mode", "agent waiting; press the bottom face button again to confirm", Sound::None)]);
     assert_eq!(c.mode(), Mode::Respond);
 }
 
@@ -510,14 +508,14 @@ fn leaving_respond_forgets_the_acknowledgement() {
     // Re-entering with A on an idle pane that then blocks: the first A is swallowed.
     c.handle(Input::Press(Btn::View), &snap());
     c.handle(Input::Press(Btn::A), &snap());
-    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("The agent is waiting", "press the bottom face button again to confirm", Sound::Request)]);
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("The agent is waiting", "press the bottom face button again to confirm", Sound::None)]);
 }
 
 #[test]
-fn menu_in_respond_does_not_acknowledge_a_dialog() {
+fn unused_stick_in_respond_does_not_acknowledge_a_dialog() {
     let mut c = in_respond();
-    assert_eq!(c.handle(Input::Press(Btn::Menu), &blocked()), vec![]);
-    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("The agent is waiting", "press the bottom face button again to confirm", Sound::Request)]);
+    assert_eq!(c.handle(Input::Press(Btn::LStick), &blocked()), vec![]);
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("The agent is waiting", "press the bottom face button again to confirm", Sound::None)]);
 }
 
 #[test]
@@ -625,4 +623,123 @@ fn controller_button_labels_are_physical_and_distinct() {
         (Btn::LStick, "left stick click"), (Btn::RStick, "right stick click"),
     ];
     for (button, label) in cases { assert_eq!(button.label(), label); }
+}
+
+mod closing {
+    use super::*;
+    use crate::herdr::argv_for;
+
+    fn open(c: &mut Core, s: &Snapshot, button: Btn) {
+        assert_eq!(c.handle(Input::Press(button), s), vec![toast("Close actions", "left face: close pane; top face: close space; right face: cancel", Sound::None)]);
+        assert_eq!(c.mode(), Mode::Navigate);
+    }
+    fn selected(c: &mut Core, s: &Snapshot, button: Btn) {
+        let (kind, target) = if button == Btn::X { ("pane", "w5:p1") } else { ("space", "w5") };
+        assert_eq!(c.handle(Input::Press(button), s), vec![toast("Confirm close", &format!("Close {kind} {target}? Stops its running processes. Bottom face: confirm; right face: cancel"), Sound::Request)]);
+    }
+    fn assert_navigation(c: &mut Core, s: &Snapshot) {
+        assert_eq!(c.handle(Input::Press(Btn::X), s), vec![Action::ToggleZoom("w5:p1".into())]);
+    }
+
+    #[test]
+    fn pane_and_space_need_selection_then_confirmation_and_are_consumed_once() {
+        for (button, command) in [(Btn::X, vec!["herdr", "pane", "close", "w5:p1"]), (Btn::Y, vec!["herdr", "workspace", "close", "w5"])] {
+            let s = snap(); let mut c = core();
+            open(&mut c, &s, Btn::Menu);
+            assert_eq!(c.handle(Input::Press(Btn::A), &s), vec![toast("Choose a close action", "left face: pane; top face: space", Sound::None)]);
+            selected(&mut c, &s, button);
+            assert_eq!(c.handle(Input::Press(Btn::A), &s).iter().map(argv_for).collect::<Vec<_>>(), vec![command]);
+            assert_navigation(&mut c, &s);
+        }
+    }
+
+    #[test]
+    fn menu_leaves_respond_and_suppresses_agent_keys_and_navigation() {
+        let s = snap(); let mut c = core();
+        c.handle(Input::Press(Btn::A), &s); assert_eq!(c.mode(), Mode::Respond);
+        open(&mut c, &s, Btn::Menu);
+        for b in [Btn::Up, Btn::Down, Btn::Left, Btn::Right, Btn::Lb, Btn::Rb, Btn::Lt, Btn::Rt, Btn::LStick] {
+            assert_eq!(c.handle(Input::Press(b), &s), vec![]);
+        }
+        selected(&mut c, &s, Btn::X);
+        assert_eq!(c.handle(Input::Release(Btn::A), &s), vec![]);
+        assert_eq!(c.handle(Input::Press(Btn::A), &s).iter().map(argv_for).collect::<Vec<_>>(), vec![vec!["herdr", "pane", "close", "w5:p1"]]);
+    }
+
+    #[test]
+    fn cancel_buttons_clear_both_menu_stages() {
+        for b in [Btn::B, Btn::View, Btn::Menu] { for choose in [false, true] {
+            let s = snap(); let mut c = core(); open(&mut c, &s, Btn::Menu);
+            if choose { selected(&mut c, &s, Btn::Y); }
+            assert_eq!(c.handle(Input::Press(b), &s), vec![toast("Close cancelled", "", Sound::None)]);
+            assert_navigation(&mut c, &s);
+        }}
+    }
+
+    #[test]
+    fn target_changes_or_missing_focus_cancel_instead_of_closing() {
+        for choice in [Btn::X, Btn::Y] { for stage in [false, true] { for kind in 0..3 {
+            let s = snap(); let mut c = core(); open(&mut c, &s, Btn::Menu);
+            if stage { selected(&mut c, &s, choice); }
+            let mut moved = s.clone();
+            match kind { 0 => moved.focused = None, 1 => moved.focused.as_mut().unwrap().pane_id = "w5:p2".into(), _ => moved.focused.as_mut().unwrap().workspace_id = "w9".into() }
+            assert_eq!(c.handle(Input::Press(if stage { Btn::A } else { choice }), &moved), vec![toast("Close cancelled", "focus changed", Sound::None)]);
+            assert_navigation(&mut c, &s);
+        }}}
+    }
+
+    #[test]
+    fn empty_ids_and_no_focus_cannot_open_a_menu() {
+        for kind in 0..3 {
+            let mut s = snap(); let mut c = core();
+            match kind { 0 => s.focused = None, 1 => s.focused.as_mut().unwrap().pane_id.clear(), _ => s.focused.as_mut().unwrap().workspace_id.clear() }
+            assert_eq!(c.handle(Input::Press(Btn::Menu), &s), vec![toast("Nothing to close", "focus a pane first", Sound::None)]);
+            assert_navigation(&mut c, &snap());
+        }
+    }
+
+    #[test]
+    fn voice_and_menu_never_share_a_button() {
+        for voice in [Btn::RStick, Btn::LStick, Btn::Menu] {
+            let s = snap(); let mut c = Core::new(voice);
+            let menu = if voice == Btn::Menu { Btn::LStick } else { Btn::Menu };
+            open(&mut c, &s, menu);
+            assert_eq!(c.handle(Input::Press(voice), &Snapshot::default()), vec![]);
+            assert_eq!(c.handle(Input::Release(voice), &s), vec![]);
+            assert_eq!(c.handle(Input::Press(menu), &s), vec![toast("Close cancelled", "", Sound::None)]);
+            assert_eq!(c.handle(Input::Press(voice), &s), vec![Action::StartRecording]);
+        }
+    }
+
+    #[test]
+    fn voice_in_progress_refuses_menu_without_discarding_recording_or_transcript() {
+        let s = snap(); let mut c = core();
+        assert_eq!(c.handle(Input::Press(Btn::RStick), &s), vec![Action::StartRecording]);
+        assert_eq!(c.handle(Input::Press(Btn::Menu), &s), vec![toast("Voice in progress", "finish dictation before closing", Sound::None)]);
+        assert_eq!(c.handle(Input::Release(Btn::RStick), &s), vec![Action::StopRecording]);
+        assert_eq!(c.handle(Input::Press(Btn::Menu), &s), vec![toast("Voice in progress", "finish dictation before closing", Sound::None)]);
+        assert!(matches!(c.handle(Input::Transcript("hello".into()), &s).first(), Some(Action::Prompt {text, ..}) if text == "hello"));
+        open(&mut c, &s, Btn::Menu);
+    }
+
+    #[test]
+    fn disconnected_controller_discards_close_intent() {
+        let s = snap(); let mut c = core(); open(&mut c, &s, Btn::Menu); selected(&mut c, &s, Btn::Y);
+        assert_eq!(c.handle(Input::Disconnected, &Snapshot::default()), vec![toast("Controller disconnected", "", Sound::None)]);
+        assert_navigation(&mut c, &s);
+    }
+
+    #[test]
+    fn switching_selection_updates_the_explicit_confirmation() {
+        let s = snap(); let mut c = core(); open(&mut c, &s, Btn::Menu);
+        selected(&mut c, &s, Btn::X); selected(&mut c, &s, Btn::Y);
+        assert_eq!(c.handle(Input::Press(Btn::A), &s).iter().map(argv_for).collect::<Vec<_>>(), vec![vec!["herdr", "workspace", "close", "w5"]]);
+    }
+
+    #[test]
+    fn shell_panes_can_be_closed() {
+        let mut s = snap(); s.focused.as_mut().unwrap().agent = None;
+        let mut c = core(); open(&mut c, &s, Btn::Menu); selected(&mut c, &s, Btn::X);
+        assert_eq!(c.handle(Input::Press(Btn::A), &s).iter().map(argv_for).collect::<Vec<_>>(), vec![vec!["herdr", "pane", "close", "w5:p1"]]);
+    }
 }
