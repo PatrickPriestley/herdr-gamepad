@@ -112,6 +112,34 @@ cargo test --locked
 The development installer builds and links a local copy. CI tests and builds on Apple
 Silicon and Intel macOS; controller and microphone behaviour still needs hardware testing.
 
+## Publishing a release
+
+Releases publish automatically after a stable version tag passes both macOS CI jobs.
+Distribution remains source-built; the release contains GitHub's source archives and
+generated release notes, not prebuilt binaries.
+
+First, open and merge a version-bump PR that updates all three versions to the same
+value: `Cargo.toml`, the `herd-gamepad` package entry in `Cargo.lock`, and
+`herdr-plugin.toml`. Update `CHANGELOG.md` with that release's changes too. Then tag the
+merged commit from an up-to-date `main`, using the matching version (for example):
+
+```sh
+git switch main
+git pull --ff-only
+git tag -a v0.1.1 -m "Release v0.1.1"
+git push origin v0.1.1
+```
+
+The tag must use stable `vMAJOR.MINOR.PATCH` format; prerelease tags are not supported.
+CI checks that the tag matches all three version files, the commit is on `main`, and
+the remote tag still points to the tested commit. After both macOS jobs pass, it
+publishes the release automatically. No manual `gh release create` command is needed.
+
+For a transient CI or GitHub API failure, rerun the failed tag workflow in GitHub Actions.
+Rerunning an already published release leaves it unchanged. An existing draft must be
+reviewed and handled manually. For version or content errors, fix them through a PR and
+use a new correct version tag; do not move a published tag.
+
 ## License
 
 MIT; see [LICENSE](LICENSE). Herdr, whisper.cpp, and the downloaded model have their own
