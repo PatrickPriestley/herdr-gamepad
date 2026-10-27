@@ -22,16 +22,16 @@ impl Runner for Fake {
     }
 }
 
-const PANE_CURRENT: &str = r#"{"id":"cli:pane:current","result":{"pane":{"agent":"claude","agent_status":"working","cwd":"/Users/p/Code","focused":true,"pane_id":"w1M:p1","revision":6,"tab_id":"w1M:t1","terminal_id":"term_65ed","workspace_id":"w1M"},"type":"pane_current"}}"#;
-const PANE_CURRENT_SHELL: &str = r#"{"id":"cli:pane:current","result":{"pane":{"cwd":"/Users/p","focused":true,"pane_id":"w5:p2","revision":1,"tab_id":"w5:t1","terminal_id":"term_1","workspace_id":"w5"},"type":"pane_current"}}"#;
-const PANE_CURRENT_UNFOCUSED: &str = r#"{"id":"cli:pane:current","result":{"pane":{"agent":"claude","agent_status":"working","cwd":"/Users/p/Code","focused":false,"pane_id":"w1M:p1","revision":6,"tab_id":"w1M:t1","terminal_id":"term_65ed","workspace_id":"w1M"},"type":"pane_current"}}"#;
+const PANE_CURRENT: &str = r#"{"result":{"panes":[{"agent":"claude","agent_status":"working","cwd":"/Users/p/Code","focused":true,"pane_id":"w1M:p1","revision":6,"tab_id":"w1M:t1","terminal_id":"term_65ed","workspace_id":"w1M"}]}}"#;
+const PANE_CURRENT_SHELL: &str = r#"{"result":{"panes":[{"cwd":"/Users/p","focused":true,"pane_id":"w5:p2","revision":1,"tab_id":"w5:t1","terminal_id":"term_1","workspace_id":"w5"}]}}"#;
+const PANE_CURRENT_UNFOCUSED: &str = r#"{"result":{"panes":[{"agent":"claude","agent_status":"working","cwd":"/Users/p/Code","focused":false,"pane_id":"w1M:p1","revision":6,"tab_id":"w1M:t1","terminal_id":"term_65ed","workspace_id":"w1M"}]}}"#;
 const WORKSPACES: &str = r#"{"id":"cli:workspace:list","result":{"type":"workspace_list","workspaces":[{"active_tab_id":"w5:t1","agent_status":"idle","focused":false,"label":"meal-plan","number":1,"pane_count":4,"tab_count":1,"workspace_id":"w5"},{"active_tab_id":"w1M:t1","agent_status":"working","focused":true,"label":"Code","number":9,"pane_count":1,"tab_count":1,"workspace_id":"w1M"}]}}"#;
 const TABS: &str = r#"{"id":"cli:tab:list","result":{"tabs":[{"agent_status":"idle","focused":false,"label":"1","number":1,"pane_count":4,"tab_id":"w7:t1","workspace_id":"w7"},{"agent_status":"unknown","focused":true,"label":"cursor-probe","number":7,"pane_count":2,"tab_id":"w7:t7","workspace_id":"w7"}],"type":"tab_list"}}"#;
 const AGENTS: &str = r#"{"id":"cli:agent:list","result":{"agents":[{"agent":"claude","agent_status":"idle","focused":false,"pane_id":"w5:p1","revision":3,"tab_id":"w5:t1","workspace_id":"w5"},{"agent":"codex","agent_status":"done","focused":false,"name":"reviewer2","pane_id":"w0:p6","tab_id":"w0:t1","workspace_id":"w0"},{"agent":"claude","agent_status":"blocked","pane_id":"w7:p21","tab_id":"w7:t1","workspace_id":"w7"},{"agent":"grok","agent_status":"mystery","pane_id":"w9:p1","tab_id":"w9:t1","workspace_id":"w9"}],"type":"agent_list"}}"#;
 
 fn fake() -> Fake {
     Fake::new(vec![
-        ("herdr pane current", Ok(PANE_CURRENT)),
+        ("herdr pane list", Ok(PANE_CURRENT)),
         ("herdr workspace list", Ok(WORKSPACES)),
         ("herdr tab list --workspace w1M", Ok(TABS)),
         ("herdr agent list", Ok(AGENTS)),
@@ -52,7 +52,7 @@ fn snapshot_reads_the_focused_pane_spaces_tabs_and_agents() {
     assert_eq!(s.agents[1].status, Status::Done);
     assert_eq!(s.agents[2].status, Status::Blocked);
     assert_eq!(s.agents[3].status, Status::Unknown, "a status this build does not know is Unknown, not an error");
-    assert_eq!(f.calls(), ["herdr pane current", "herdr workspace list", "herdr tab list --workspace w1M", "herdr agent list"], "tabs are listed for the focused pane's space");
+    assert_eq!(f.calls(), ["herdr pane list", "herdr workspace list", "herdr tab list --workspace w1M", "herdr agent list"], "tabs are listed for the focused pane's space");
 }
 
 #[test]
@@ -66,12 +66,12 @@ fn a_shell_pane_has_no_agent_and_no_status() {
 
 #[test]
 fn an_unfocused_current_pane_is_no_focused_pane() {
-    // `pane current` answers for the client's last pane even when the UI focus belongs to another client.
+    // A list containing only unfocused panes provides no safe action target.
     let mut f = fake();
     f.answers[0].1 = Ok(PANE_CURRENT_UNFOCUSED);
     let s = Herdr { runner: &f }.snapshot().unwrap();
     assert_eq!(s.focused, None);
-    assert_eq!(f.calls(), ["herdr pane current", "herdr workspace list", "herdr agent list"], "no focused pane, so no space to list tabs for");
+    assert_eq!(f.calls(), ["herdr pane list", "herdr workspace list", "herdr agent list"], "no focused pane, so no space to list tabs for");
 }
 
 #[test]
@@ -142,7 +142,7 @@ fn apply_runs_the_command_and_surfaces_the_error() {
 #[test]
 fn missing_result_objects_parse_to_nothing() {
     let f = Fake::new(vec![
-        ("herdr pane current", Ok(r#"{"result":{}}"#)),
+        ("herdr pane list", Ok(r#"{"result":{}}"#)),
         ("herdr workspace list", Ok(r#"{"result":{}}"#)),
         ("herdr tab list", Ok(r#"{"result":{}}"#)),
         ("herdr agent list", Ok(r#"{"result":{}}"#)),
@@ -152,7 +152,7 @@ fn missing_result_objects_parse_to_nothing() {
     assert!(s.workspaces.is_empty(), "{:?}", s.workspaces);
     assert!(s.tabs.is_empty(), "{:?}", s.tabs);
     assert!(s.agents.is_empty(), "{:?}", s.agents);
-    assert_eq!(f.calls(), ["herdr pane current", "herdr workspace list", "herdr agent list"], "no focused pane, so no space to list tabs for");
+    assert_eq!(f.calls(), ["herdr pane list", "herdr workspace list", "herdr agent list"], "no focused pane, so no space to list tabs for");
 }
 
 #[test]
@@ -258,3 +258,27 @@ fn timeout_cleans_descendants_after_parent_exit() { check_timeout_cleans_descend
 
 #[test]
 fn timeout_cleans_descendants_while_parent_waits() { check_timeout_cleans_descendants(true); }
+
+#[test]
+fn daemon_snapshot_follows_ui_focus_instead_of_its_own_pane() {
+    // Minimized from pane current/list queried with the live daemon's caller context.
+    let daemon = r#"{"result":{"pane":{"pane_id":"w1M:p7","workspace_id":"w1M","tab_id":"w1M:t2","focused":false}}}"#;
+    let panes = r#"{"result":{"panes":[{"pane_id":"w1M:p7","workspace_id":"w1M","tab_id":"w1M:t2","focused":false},{"pane_id":"w1M:p4","workspace_id":"w1M","tab_id":"w1M:t1","focused":true,"agent":"codex","agent_status":"idle"}]}}"#;
+    let tabs = r#"{"result":{"tabs":[{"tab_id":"w1M:t1","number":1,"focused":true},{"tab_id":"w1M:t2","number":2,"focused":false}]}}"#;
+    let f = Fake::new(vec![
+        ("herdr pane current", Ok(daemon)),
+        ("herdr pane list", Ok(panes)),
+        ("herdr workspace list", Ok(WORKSPACES)),
+        ("herdr tab list --workspace w1M", Ok(tabs)),
+        ("herdr agent list", Ok(AGENTS)),
+    ]);
+    let snap = Herdr { runner: &f }.snapshot().unwrap();
+    assert_eq!(snap.focused.as_ref().map(|p| p.pane_id.as_str()), Some("w1M:p4"));
+    assert_eq!(Core::new(Btn::RStick).handle(Input::Press(Btn::Right), &snap), vec![Action::FocusDirection { pane_id: "w1M:p4".into(), dir: Dir::Right }]);
+    assert_eq!(Core::new(Btn::RStick).handle(Input::Press(Btn::Rt), &snap), vec![Action::FocusTab("w1M:t2".into())]);
+    let mut core = Core::new(Btn::RStick);
+    core.handle(Input::Press(Btn::A), &snap);
+    assert_eq!(core.mode(), Mode::Respond);
+    core.handle(Input::Press(Btn::View), &snap);
+    assert_eq!(core.mode(), Mode::Navigate);
+}

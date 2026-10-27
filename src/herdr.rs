@@ -99,7 +99,7 @@ pub struct Herdr<R: Runner> { pub runner: R }
 
 impl<R: Runner> Herdr<R> {
     pub fn snapshot(&self) -> Result<Snapshot, String> {
-        let focused = parse_pane(&self.json(&["herdr", "pane", "current"])?);
+        let focused = parse_pane(&self.json(&["herdr", "pane", "list"])?);
         let workspaces = parse_workspaces(&self.json(&["herdr", "workspace", "list"])?);
         let tabs = match &focused {
             Some(p) => parse_tabs(&self.json(&["herdr", "tab", "list", "--workspace", &p.workspace_id])?),
@@ -145,9 +145,9 @@ fn text(v: &Value, key: &str) -> String { v[key].as_str().unwrap_or_default().to
 fn number(v: &Value) -> u32 { v.as_u64().and_then(|n| u32::try_from(n).ok()).unwrap_or(0) }
 
 fn parse_pane(v: &Value) -> Option<Pane> {
-    let p = &v["result"]["pane"];
-    // `pane current` answers for this client's last pane; the UI focus may belong to another client.
-    if !p.is_object() || p["focused"].as_bool() != Some(true) { return None; }
+    // `pane current` resolves the daemon's inherited caller pane, not UI focus.
+    let p = v["result"]["panes"].as_array()?.iter()
+        .find(|p| p["focused"].as_bool() == Some(true))?;
     Some(Pane {
         pane_id: text(p, "pane_id"),
         workspace_id: text(p, "workspace_id"),
