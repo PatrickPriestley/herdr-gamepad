@@ -17,7 +17,16 @@ pub struct Feedback {
 }
 impl Feedback {
     pub fn emit(&mut self, herdr: &Herdr<impl Runner>, action: &Action) {
-        let _ = herdr.apply(action);
+        let Action::Toast { title, body, sound } = action else {
+            return;
+        };
+        crate::logging::event(format_args!("herd-gamepad: {title}: {body}"));
+        if !self.admit(*sound, Instant::now()) {
+            return;
+        }
+        if let Err(e) = herdr.apply(action) {
+            crate::logging::event(format_args!("herd-gamepad: notification: {e}"));
+        }
     }
     fn admit(&mut self, sound: Sound, now: Instant) -> bool {
         if sound != Sound::Request
@@ -51,7 +60,12 @@ impl MenuUi {
         }
     }
     pub fn sync(&mut self, core: &mut Core, herdr: &Herdr<impl Runner>) -> Result<(), String> {
-        let _ = (core, herdr); Ok(())
+        let result = self.sync_inner(core, herdr);
+        if result.is_err() {
+            core.cancel_close();
+            self.active = None;
+        }
+        result
     }
     fn sync_inner(&mut self, core: &mut Core, herdr: &Herdr<impl Runner>) -> Result<(), String> {
         let Some(text) = core.close_view() else {
@@ -101,7 +115,25 @@ impl MenuUi {
         snap: &Snapshot,
         herdr: &Herdr<impl Runner>,
     ) -> Result<Vec<Action>, String> {
-        let _ = herdr; Ok(core.handle(input, snap))
+        let was_menu = core.close_view().is_some();
+        self.sync(core, herdr)?;
+        // Consume an input aimed at a renderer that disappeared, rather than forwarding it to an agent.
+        if was_menu && core.close_view().is_none() {
+            return Ok(vec![]);
+        }
+        if input == Input::Press(Btn::A)
+            && was_menu
+            && !self.active.as_ref().is_some_and(Session::ready)
+        {
+            return Ok(vec![]);
+        }
+        let mut actions = core.handle(input, snap);
+        let is_menu = core.close_view().is_some();
+        self.sync(core, herdr)?;
+        if was_menu || is_menu {
+            actions.retain(|a| !matches!(a, Action::Toast { .. }));
+        }
+        Ok(actions)
     }
 }
 impl Session {
@@ -174,8 +206,35 @@ pub fn render_from_env() -> Result<(), String> {
     render(Path::new(&dir))
 }
 fn render(dir: &Path) -> Result<(), String> {
-        let _ = dir; Err("not implemented".into())
+    let lease = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(dir.join("viewer.lock"))
+        .map_err(|e| e.to_string())?;
+    if unsafe { libc::flock(lease.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        return Err("close menu already displayed".into());
     }
+    let mut shown = 0;
+    loop {
+        let state = match fs::read_to_string(dir.join("state")) {
+            Ok(s) => s,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(e.to_string()),
+        };
+        let value: serde_json::Value = serde_json::from_str(&state).map_err(|e| e.to_string())?;
+        let revision = value["revision"].as_u64().ok_or("invalid menu revision")?;
+        let text = value["text"].as_str().ok_or("invalid menu text")?;
+        if revision != shown {
+            let mut out = io::stdout().lock();
+            write!(out, "\x1b[2J\x1b[H{text}\r\n")
+                .and_then(|_| out.flush())
+                .map_err(|e| e.to_string())?;
+            atomic(dir, "ack", &revision.to_string())?;
+            shown = revision;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
 #[cfg(test)]
 #[path = "feedback_tests.rs"]
 mod tests;

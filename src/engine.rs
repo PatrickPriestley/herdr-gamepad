@@ -102,7 +102,6 @@ pub struct Core {
 }
 
 impl Core {
-    pub fn close_view(&self) -> Option<String> { None }
     pub fn new(voice_button: Btn) -> Self {
         Core { close_menu: None, mode: Mode::Navigate, voice_button, respond_pane: None, acknowledged_block: false, recording: false, transcribing: false, voice_target: None }
     }
@@ -158,6 +157,17 @@ impl Core {
 
     /// A failed snapshot disarms close intent; a later successful read must not revive it.
     pub fn cancel_close(&mut self) { self.close_menu = None; }
+
+    pub fn close_view(&self) -> Option<String> {
+        let menu=self.close_menu.as_ref()?;
+        let heading=match menu.choice {
+            None=>format!("Close actions — pane {} / space {}\nLeft face: close pane; top face: close space",menu.pane_id,menu.workspace_id),
+            Some(CloseKind::Pane)=>format!("Close pane {}?\nBottom face: confirm",menu.pane_id),
+            Some(CloseKind::Space)=>format!("Close space {}?\nBottom face: confirm",menu.workspace_id),
+        };
+        Some(format!("{heading}\nStops its running processes.\nRight face / Back / {}: cancel",menu_button(self.voice_button).label()))
+    }
+
 
     fn open_close(&mut self, snap: &Snapshot) -> Vec<Action> {
         if self.recording || self.transcribing {
@@ -221,7 +231,7 @@ impl Core {
             // acknowledgement, so the next A is swallowed once. `respond` is bypassed because it would count it.
             self.enter_respond(agent_pane, false);
             return vec![
-                toast("Respond mode", "the agent is waiting for you", Sound::Request),
+                toast("Respond mode", "the agent is waiting for you", Sound::None),
                 Action::SendKeys { target: agent_pane.map(|p| p.pane_id.clone()).unwrap_or_default(), keys: vec![key_of(b)] },
             ];
         }
@@ -234,7 +244,7 @@ impl Core {
                     Some(_) => {
                         // Entering on a blocked agent is the acknowledgement; the next A confirms.
                         self.enter_respond(agent_pane, blocked);
-                        if blocked { vec![toast("Respond mode", "agent waiting; press the bottom face button again to confirm", Sound::Request)] }
+                        if blocked { vec![toast("Respond mode", "agent waiting; press the bottom face button again to confirm", Sound::None)] }
                         else { vec![toast("Respond mode", "D-pad moves; bottom confirms, right escapes; Back / Select leaves", Sound::None)] }
                     }
                     None => vec![toast("No agent here", "focus a pane with an agent first", Sound::None)],
@@ -290,7 +300,7 @@ impl Core {
         let blocked_now = p.status == Some(Status::Blocked);
         if blocked_now && !self.acknowledged_block && key == Key::Enter {
             self.acknowledged_block = true;
-            return vec![toast("The agent is waiting", "press the bottom face button again to confirm", Sound::Request)];
+            return vec![toast("The agent is waiting", "press the bottom face button again to confirm", Sound::None)];
         }
         self.acknowledged_block = blocked_now && key != Key::Enter;
         vec![Action::SendKeys { target: p.pane_id.clone(), keys: vec![key] }]

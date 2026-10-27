@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Deliver completed dictation without waiting for another controller button press; drain ignored controller motion in bounded batches to keep buttons responsive.
+- Deliver completed dictation without waiting for another controller button press.
 
 - Add controller close-pane and close-space actions with explicit target confirmation and cancellation.
 
