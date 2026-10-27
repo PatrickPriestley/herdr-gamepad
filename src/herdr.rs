@@ -198,6 +198,8 @@ fn parse_agents(v: &Value) -> Vec<Agent> {
 pub fn argv_for(a: &Action) -> Vec<String> {
     let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
     match a {
+        Action::ClosePane(id) => s(&["herdr", "pane", "close", id]),
+        Action::CloseWorkspace(id) => s(&["herdr", "workspace", "close", id]),
         Action::FocusWorkspace(id) => s(&["herdr", "workspace", "focus", id]),
         Action::FocusTab(id) => s(&["herdr", "tab", "focus", id]),
         Action::FocusDirection { pane_id, dir } => s(&["herdr", "pane", "focus", "--direction", dir_name(*dir), "--pane", pane_id]),
