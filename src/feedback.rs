@@ -205,15 +205,19 @@ pub fn render_from_env() -> Result<(), String> {
         .ok_or("close menu must be opened by the controller")?;
     render(Path::new(&dir))
 }
+fn acquire_lease(fd: std::os::fd::RawFd) -> Result<(), String> {
+    if unsafe { libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        return Err("close menu already displayed".into());
+    }
+    Ok(())
+}
 fn render(dir: &Path) -> Result<(), String> {
     let lease = OpenOptions::new()
         .read(true)
         .write(true)
         .open(dir.join("viewer.lock"))
         .map_err(|e| e.to_string())?;
-    if unsafe { libc::flock(lease.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-        return Err("close menu already displayed".into());
-    }
+    acquire_lease(lease.as_raw_fd())?;
     let mut shown = 0;
     loop {
         let state = match fs::read_to_string(dir.join("state")) {
