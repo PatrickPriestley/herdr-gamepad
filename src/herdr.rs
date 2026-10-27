@@ -2,9 +2,10 @@
 
 use crate::engine::*;
 use serde_json::Value;
-use std::io::Read;
+use std::io::{self, Read};
+use std::os::unix::io::AsRawFd;
+use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 /// Runs a command; Ok(stdout) on exit 0, Err(stderr) otherwise. Faked in tests.
@@ -32,51 +33,66 @@ impl Runner for Cli {
 pub fn run_with_timeout(argv: &[&str], timeout: Duration) -> Result<String, String> {
     let name = *argv.first().ok_or("empty argv")?;
     let mut child = Command::new(name).args(&argv[1..])
+        .process_group(0)
         .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped())
         .spawn().map_err(|e| format!("{name}: {e}"))?;
-    let stdout = drain(child.stdout.take());
-    let stderr = drain(child.stderr.take());
     let deadline = Instant::now() + timeout;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
-            Ok(None) => {
-                reap(&mut child);
-                // The drain threads end when the pipes close, which killing the child does; they are not joined
-                // here because a grandchild that inherited a pipe could hold them open until it exits.
-                return Err(format!("{name}: timed out after {}s", timeout.as_secs()));
+    // Own and drain both pipes here: returning closes them, even if a descendant
+    // escaped the process group. No detached reader threads can outlive the call.
+    let result = (|| {
+        let mut stdout = child.stdout.take().expect("stdout was piped");
+        let mut stderr = child.stderr.take().expect("stderr was piped");
+        nonblocking(&stdout).and_then(|_| nonblocking(&stderr)).map_err(|e| format!("{name}: {e}"))?;
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        loop {
+            if Instant::now() >= deadline { return Err(format!("{name}: timed out after {timeout:?}")); }
+            let out_done = drain_available(&mut stdout, &mut out).map_err(|e| format!("{name}: stdout: {e}"))?;
+            let err_done = drain_available(&mut stderr, &mut err).map_err(|e| format!("{name}: stderr: {e}"))?;
+            let status = child.try_wait().map_err(|e| format!("{name}: {e}"))?;
+            if let Some(status) = status.filter(|_| out_done && err_done) {
+                let stdout = String::from_utf8_lossy(&out).into_owned();
+                let stderr = String::from_utf8_lossy(&err).trim().to_string();
+                return if status.success() { Ok(stdout) }
+                    else if stderr.is_empty() { Err(format!("{name}: {status}")) }
+                    else { Err(stderr) };
             }
-            Err(e) => {
-                reap(&mut child);
-                return Err(format!("{name}: {e}"));
-            }
+            std::thread::sleep(Duration::from_millis(10));
         }
-    };
-    let stdout = String::from_utf8_lossy(&stdout.join().unwrap_or_default()).into_owned();
-    let stderr = String::from_utf8_lossy(&stderr.join().unwrap_or_default()).trim().to_string();
-    if status.success() {
-        Ok(stdout)
-    } else if stderr.is_empty() {
-        Err(format!("{name}: {status}"))
-    } else {
-        Err(stderr)
+    })();
+    if result.is_err() {
+        // Each invocation gets its own process group, so timeout also terminates
+        // descendants holding the pipes after their direct parent has exited.
+        unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL); }
+        let _ = child.kill();
+        let _ = child.wait();
     }
+    result
 }
 
-/// Kills and waits for a child so it cannot linger as a zombie.
-fn reap(child: &mut std::process::Child) {
-    let _ = child.kill();
-    let _ = child.wait();
+fn nonblocking(pipe: &impl AsRawFd) -> io::Result<()> {
+    let fd = pipe.as_raw_fd();
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags == -1 { return Err(io::Error::last_os_error()); }
+    if unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } == -1 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
 }
 
-/// Reads a pipe to its end on its own thread, so a full pipe can never block the child.
-fn drain<P: Read + Send + 'static>(pipe: Option<P>) -> JoinHandle<Vec<u8>> {
-    std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        if let Some(mut p) = pipe { let _ = p.read_to_end(&mut buf); }
-        buf
-    })
+/// A bounded batch prevents a continuously writing child from starving the
+/// other pipe or the deadline. True means EOF; WouldBlock means try again later.
+fn drain_available(pipe: &mut impl Read, buf: &mut Vec<u8>) -> io::Result<bool> {
+    let mut chunk = [0; 8192];
+    for _ in 0..16 {
+        match pipe.read(&mut chunk) {
+            Ok(0) => return Ok(true),
+            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(false),
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(false)
 }
 
 pub struct Herdr<R: Runner> { pub runner: R }

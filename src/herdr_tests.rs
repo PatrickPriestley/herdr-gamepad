@@ -226,3 +226,35 @@ fn cli_timeout_is_configurable() {
     assert!(err.contains("timed out"), "{err}");
     assert!(took < Duration::from_secs(2), "took {took:?}");
 }
+
+#[test]
+fn cli_deadline_covers_pipes_inherited_after_parent_exits() {
+    for script in ["sleep 2 >&2 & exit 0", "sleep 2 2>/dev/null & exit 0"] {
+        let started = Instant::now();
+        let result = run_with_timeout(&["/bin/sh", "-c", script], Duration::from_millis(100));
+        assert!(matches!(&result, Err(e) if e.contains("timed out")), "{result:?}");
+        assert!(started.elapsed() < Duration::from_secs(1), "deadline bypassed: {:?}", started.elapsed());
+    }
+}
+
+fn check_timeout_cleans_descendants(wait_for_child: bool) {
+    let path = std::env::temp_dir().join(format!("gamepad-descendant-{}-{wait_for_child}", std::process::id()));
+    let script = if wait_for_child { "sleep 5 & echo $! > \"$1\"; wait" } else { "sleep 5 & echo $! > \"$1\"; exit 0" };
+    let result = run_with_timeout(&["/bin/sh", "-c", script, "review", path.to_str().unwrap()], Duration::from_millis(200));
+    let pid: i32 = std::fs::read_to_string(&path).unwrap().trim().parse().unwrap();
+    std::fs::remove_file(path).unwrap();
+    let until = Instant::now() + Duration::from_secs(1);
+    while unsafe { libc::kill(pid, 0) } == 0 && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let survived = unsafe { libc::kill(pid, 0) } == 0;
+    if survived { unsafe { libc::kill(pid, libc::SIGKILL); } }
+    assert!(matches!(result, Err(ref e) if e.contains("timed out")), "{result:?}");
+    assert!(!survived, "descendant {pid} survived the command timeout");
+}
+
+#[test]
+fn timeout_cleans_descendants_after_parent_exit() { check_timeout_cleans_descendants(false); }
+
+#[test]
+fn timeout_cleans_descendants_while_parent_waits() { check_timeout_cleans_descendants(true); }

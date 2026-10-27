@@ -48,7 +48,7 @@ pub fn serve() -> Result<(), String> {
                 }
             };
             eprintln!("herd-gamepad: {} in {:?}", describe(&input), core.mode());
-            for action in core.handle(input, &snap) {
+            apply_actions(&herdr, core.handle(input, &snap), |action| {
                 match action {
                     Action::StartRecording => match Recorder::start(cfg.max_seconds) {
                         Ok(r) => recorder = Some(r),
@@ -62,12 +62,24 @@ pub fn serve() -> Result<(), String> {
                         None => { let _ = tx.send(Input::TranscriptFailed("recording did not start".into())); }
                     },
                     Action::CancelRecording => drop(recorder.take()),
-                    other => if let Err(e) = herdr.apply(&other) {
-                        eprintln!("herd-gamepad: {other:?}: {e}");
-                        let _ = herdr.apply(&toast("Herdr refused", &e, Sound::Request));
-                    },
+                    _ => unreachable!("only recording actions are delegated"),
                 }
-            }
+            });
+        }
+    }
+}
+
+/// Apply one input's actions, delegating hardware recording to the daemon.
+pub fn apply_actions(herdr: &Herdr<impl Runner>, actions: Vec<Action>, mut record: impl FnMut(Action)) {
+    for action in actions {
+        match action {
+            Action::StartRecording | Action::StopRecording | Action::CancelRecording => record(action),
+            other => if let Err(e) = herdr.apply(&other) {
+                eprintln!("herd-gamepad: {other:?}: {e}");
+                let _ = herdr.apply(&toast("Herdr refused", &e, Sound::Request));
+                // The remaining transcript action announces successful delivery.
+                if matches!(other, Action::Prompt { .. } | Action::SendText { .. }) { break; }
+            },
         }
     }
 }
