@@ -136,6 +136,12 @@ if run "$f" "$f/tools:$base_path" HERD_GAMEPAD_BUILD=source; then fail "badenv: 
 [ "$("$f/bin/herd-gamepad")" = "old binary" ] || fail "badenv: old binary was replaced"
 [ -z "$(ls "$f/bin" | grep -v '^herd-gamepad$')" ] || fail "badenv: staging file left behind: $(ls "$f/bin")"
 
+# 8b. The success sentinel must not be inheritable: with installed=1 exported by the caller, the
+# same shell error must still exit non-zero.
+f=$(fixture inherited); mkdir -p "$f/.cargo"; printf ': "$HERD_GAMEPAD_TEST_UNSET"\n' > "$f/.cargo/env"
+if run "$f" "$f/tools:$base_path" "HERD_GAMEPAD_BUILD=source installed=1"; then fail "inherited: an exported installed=1 masked the failure: $(cat "$f/log")"; fi
+[ "$("$f/bin/herd-gamepad")" = "old binary" ] || fail "inherited: old binary was replaced"
+
 # 9. An unknown HERD_GAMEPAD_BUILD value is rejected before anything is downloaded or built:
 # exit 1, old binary untouched, a message naming the value, and neither curl nor cargo ran.
 f=$(fixture unknownmode); release "$f"; forbid "$f" curl; forbid "$f" cargo
@@ -218,4 +224,4 @@ run "$f" "$f/tools:$base_path" "" || fail "installed: exit $?: $(cat "$f/log")"
 [ "$("$f/bin/herd-gamepad")" = "old binary" ] || fail "installed: an installed copy was rebuilt"
 [ ! -e "$f/curl-ran" ] || fail "installed: a download was attempted"
 
-[ "$failures" = 0 ] && echo "build script: 18 cases passed" || { echo "build script: $failures failing" >&2; exit 1; }
+[ "$failures" = 0 ] && echo "build script: 19 cases passed" || { echo "build script: $failures failing" >&2; exit 1; }

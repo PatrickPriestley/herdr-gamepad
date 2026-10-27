@@ -82,13 +82,14 @@ build_failed() {
 cleanup() {
   rc=$?
   rm -f "$staged"
-  [ "$rc" != 0 ] || [ -n "${installed:-}" ] || rc=1
+  [ "$rc" != 0 ] || [ "$installed" = 1 ] || rc=1
   exit "$rc"
 }
 
 mkdir -p "$(dirname -- "$out")"
 # A fresh inode avoids invalidating a running executable and macOS signature caches.
 staged=$(mktemp "${out}.XXXXXX")
+installed=0
 trap cleanup EXIT HUP INT TERM
 if [ "${HERD_GAMEPAD_BUILD:-}" = source ]; then
   build_source "$staged" || build_failed $? "cargo not found; install Rust from https://rustup.rs"
