@@ -130,7 +130,8 @@ fn number(v: &Value) -> u32 { v.as_u64().and_then(|n| u32::try_from(n).ok()).unw
 
 fn parse_pane(v: &Value) -> Option<Pane> {
     let p = &v["result"]["pane"];
-    if !p.is_object() { return None; }
+    // `pane current` answers for this client's last pane; the UI focus may belong to another client.
+    if !p.is_object() || p["focused"].as_bool() != Some(true) { return None; }
     Some(Pane {
         pane_id: text(p, "pane_id"),
         workspace_id: text(p, "workspace_id"),

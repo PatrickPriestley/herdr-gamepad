@@ -14,6 +14,11 @@ Pair the controller in System Settings > Bluetooth (hold the pairing button on t
 controller until the Xbox button blinks fast). Then, in Herdr's command palette:
 "Gamepad: set up voice" (downloads the 148 MB base.en model once), then "Gamepad: start".
 
+The first time you hold the voice button, macOS asks whether the terminal app may use the
+microphone; if that is denied, every hold ends with a "Recording failed" toast (allow it in
+System Settings > Privacy & Security > Microphone). The daemon's log is in the "Gamepad"
+tab that "Gamepad: start" opens.
+
 ## Buttons
 
 See "Gamepad: show the mapping" in the palette, or `herd-gamepad mapping`.

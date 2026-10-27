@@ -24,6 +24,7 @@ impl Runner for Fake {
 
 const PANE_CURRENT: &str = r#"{"id":"cli:pane:current","result":{"pane":{"agent":"claude","agent_status":"working","cwd":"/Users/p/Code","focused":true,"pane_id":"w1M:p1","revision":6,"tab_id":"w1M:t1","terminal_id":"term_65ed","workspace_id":"w1M"},"type":"pane_current"}}"#;
 const PANE_CURRENT_SHELL: &str = r#"{"id":"cli:pane:current","result":{"pane":{"cwd":"/Users/p","focused":true,"pane_id":"w5:p2","revision":1,"tab_id":"w5:t1","terminal_id":"term_1","workspace_id":"w5"},"type":"pane_current"}}"#;
+const PANE_CURRENT_UNFOCUSED: &str = r#"{"id":"cli:pane:current","result":{"pane":{"agent":"claude","agent_status":"working","cwd":"/Users/p/Code","focused":false,"pane_id":"w1M:p1","revision":6,"tab_id":"w1M:t1","terminal_id":"term_65ed","workspace_id":"w1M"},"type":"pane_current"}}"#;
 const WORKSPACES: &str = r#"{"id":"cli:workspace:list","result":{"type":"workspace_list","workspaces":[{"active_tab_id":"w5:t1","agent_status":"idle","focused":false,"label":"meal-plan","number":1,"pane_count":4,"tab_count":1,"workspace_id":"w5"},{"active_tab_id":"w1M:t1","agent_status":"working","focused":true,"label":"Code","number":9,"pane_count":1,"tab_count":1,"workspace_id":"w1M"}]}}"#;
 const TABS: &str = r#"{"id":"cli:tab:list","result":{"tabs":[{"agent_status":"idle","focused":false,"label":"1","number":1,"pane_count":4,"tab_id":"w7:t1","workspace_id":"w7"},{"agent_status":"unknown","focused":true,"label":"cursor-probe","number":7,"pane_count":2,"tab_id":"w7:t7","workspace_id":"w7"}],"type":"tab_list"}}"#;
 const AGENTS: &str = r#"{"id":"cli:agent:list","result":{"agents":[{"agent":"claude","agent_status":"idle","focused":false,"pane_id":"w5:p1","revision":3,"tab_id":"w5:t1","workspace_id":"w5"},{"agent":"codex","agent_status":"done","focused":false,"name":"reviewer2","pane_id":"w0:p6","tab_id":"w0:t1","workspace_id":"w0"},{"agent":"claude","agent_status":"blocked","pane_id":"w7:p21","tab_id":"w7:t1","workspace_id":"w7"},{"agent":"grok","agent_status":"mystery","pane_id":"w9:p1","tab_id":"w9:t1","workspace_id":"w9"}],"type":"agent_list"}}"#;
@@ -61,6 +62,16 @@ fn a_shell_pane_has_no_agent_and_no_status() {
     f.answers.push(("herdr tab list --workspace w5", Ok(TABS)));
     let s = Herdr { runner: &f }.snapshot().unwrap();
     assert_eq!(s.focused, Some(Pane { pane_id: "w5:p2".into(), workspace_id: "w5".into(), tab_id: "w5:t1".into(), agent: None, status: None }));
+}
+
+#[test]
+fn an_unfocused_current_pane_is_no_focused_pane() {
+    // `pane current` answers for the client's last pane even when the UI focus belongs to another client.
+    let mut f = fake();
+    f.answers[0].1 = Ok(PANE_CURRENT_UNFOCUSED);
+    let s = Herdr { runner: &f }.snapshot().unwrap();
+    assert_eq!(s.focused, None);
+    assert_eq!(f.calls(), ["herdr pane current", "herdr workspace list", "herdr agent list"], "no focused pane, so no space to list tabs for");
 }
 
 #[test]

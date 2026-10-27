@@ -21,7 +21,8 @@ impl Recorder {
         let dev = cpal::default_host().default_input_device().ok_or("no input device")?;
         let cfg = cpal::StreamConfig { channels: 1, sample_rate: RATE, buffer_size: cpal::BufferSize::Default };
         let max = max_seconds as usize * RATE as usize;
-        let buf: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::with_capacity(max)));
+        // Reserve for a minute at most: max_seconds may be an hour, and a reserve that size per hold is waste.
+        let buf: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::with_capacity(max.min(RATE as usize * 60))));
         let sink = buf.clone();
         let stream = dev.build_input_stream(
             cfg,

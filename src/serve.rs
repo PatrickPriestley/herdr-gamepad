@@ -160,7 +160,7 @@ Navigate (default)                 Respond (after A, or a D-pad press on a block
   A       Respond mode
 
 Hold the right stick click (or voice.button in config.toml) to talk; release to send.
-  idle or done agent: sent    working: typed, not sent    blocked or none: dropped
+  idle or done agent: sent    working: typed, not sent    blocked, unknown or none: dropped
 
 Press Enter to close.
 ";
