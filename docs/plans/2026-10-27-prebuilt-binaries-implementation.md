@@ -118,18 +118,25 @@ run "$f" "$f/tools:$base_path" "" || fail "emptydigest: exit $?: $(cat "$f/log")
 [ "$("$f/bin/herd-gamepad")" = "new binary" ] || fail "emptydigest: the download was installed on an empty digest"
 grep -q "checksum mismatch" "$f/log" || fail "emptydigest: log does not mention the mismatch: $(cat "$f/log")"
 
+# 9. No checksum tool at all: an empty computed digest must not match an empty published one.
+f=$(fixture nodigest); release "$f"; : > "$f/release/$asset.sha256"
+printf '#!/bin/sh\nexit 1\n' > "$f/tools/shasum"; cp "$f/tools/shasum" "$f/tools/sha256sum"; chmod +x "$f/tools/shasum" "$f/tools/sha256sum"
+run "$f" "$f/tools:$base_path" "" || fail "nodigest: exit $?: $(cat "$f/log")"
+[ "$("$f/bin/herd-gamepad")" = "new binary" ] || fail "nodigest: an unverifiable download was installed"
+grep -q "checksum mismatch" "$f/log" || fail "nodigest: log does not mention the mismatch: $(cat "$f/log")"
+
 # 7. An installed copy (binary present, no Cargo.toml) does nothing and never downloads.
 f=$(fixture installed); release "$f"; rm "$f/Cargo.toml"
 run "$f" "$base_path" "" || fail "installed: exit $?: $(cat "$f/log")"
 [ "$("$f/bin/herd-gamepad")" = "old binary" ] || fail "installed: an installed copy was rebuilt"
 
-[ "$failures" = 0 ] && echo "build script: 8 cases passed" || { echo "build script: $failures failing" >&2; exit 1; }
+[ "$failures" = 0 ] && echo "build script: 9 cases passed" || { echo "build script: $failures failing" >&2; exit 1; }
 ```
 
 **Step 2: Run it to verify it fails**
 
 Run: `sh tests/build.sh; echo exit=$?`
-Expected (verified against the current script): three FAIL lines from two cases, `prebuilt` (exit 1, cargo not found; then "expected the downloaded binary, got old binary") and `corrupt` (log does not mention the mismatch), then `build script: 4 failing` counting the empty-digest case below; the other cases already hold; exit 1.
+Expected (verified against the current script): three FAIL lines from two cases, `prebuilt` (exit 1, cargo not found; then "expected the downloaded binary, got old binary") and `corrupt` (log does not mention the mismatch), then `build script: 5 failing` counting the two digest cases below; the other cases already hold; exit 1.
 
 **Step 3: Commit**
 
@@ -226,7 +233,7 @@ mv -f "$staged" "$out"
 **Step 2: Run the tests to verify they pass**
 
 Run: `sh tests/build.sh`
-Expected: `build script: 8 cases passed`
+Expected: `build script: 9 cases passed`
 
 **Step 3: Commit**
 
