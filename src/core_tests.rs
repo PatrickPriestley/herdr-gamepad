@@ -243,3 +243,78 @@ fn dpad_on_a_working_agent_still_moves_focus() {
     assert_eq!(c.handle(Input::Press(Btn::Down), &s), vec![Action::FocusDirection { pane_id: "w5:p1".into(), dir: Dir::Down }]);
     assert_eq!(c.mode(), Mode::Navigate);
 }
+
+#[test]
+fn holding_the_voice_button_records_and_releasing_stops() {
+    let mut c = core();
+    assert_eq!(c.handle(Input::Press(Btn::RStick), &snap()), vec![Action::StartRecording]);
+    assert!(c.recording());
+    assert_eq!(c.handle(Input::Press(Btn::RStick), &snap()), vec![], "a repeated press while recording is ignored");
+    assert_eq!(c.handle(Input::Release(Btn::RStick), &snap()), vec![Action::StopRecording]);
+    assert!(!c.recording());
+    assert_eq!(c.handle(Input::Release(Btn::RStick), &snap()), vec![], "a release when not recording is ignored");
+}
+
+#[test]
+fn the_voice_button_is_configurable() {
+    let mut c = Core::new(Btn::Menu);
+    assert_eq!(c.handle(Input::Press(Btn::Menu), &snap()), vec![Action::StartRecording]);
+    assert_eq!(c.handle(Input::Press(Btn::RStick), &snap()), vec![], "the stick is an ordinary button now");
+}
+
+#[test]
+fn recording_works_in_respond_mode_too() {
+    let mut c = in_respond();
+    assert_eq!(c.handle(Input::Press(Btn::RStick), &snap()), vec![Action::StartRecording]);
+    assert_eq!(c.mode(), Mode::Respond);
+}
+
+#[test]
+fn transcript_to_an_idle_or_done_agent_is_submitted() {
+    let mut c = core();
+    assert_eq!(c.handle(Input::Transcript("run the tests".into()), &snap()), vec![
+        Action::Prompt { target: "w5:p1".into(), text: "run the tests".into() },
+        toast("Sent", "run the tests", Sound::None),
+    ]);
+    let s = Snapshot { focused: Some(pane("w5:p1", Some("claude"), Some(Status::Done))), ..snap() };
+    assert!(matches!(c.handle(Input::Transcript("ok".into()), &s).as_slice(), [Action::Prompt { .. }, _]));
+}
+
+#[test]
+fn transcript_to_a_working_agent_is_typed_but_not_sent() {
+    let s = Snapshot { focused: Some(pane("w5:p1", Some("claude"), Some(Status::Working))), ..snap() };
+    assert_eq!(core().handle(Input::Transcript("  also check lint  ".into()), &s), vec![
+        Action::SendText { pane_id: "w5:p1".into(), text: "also check lint".into() },
+        toast("Typed, not sent", "agent is working: also check lint", Sound::None),
+    ]);
+}
+
+#[test]
+fn transcript_is_dropped_when_the_agent_waits_at_a_dialog_or_is_absent() {
+    let out = core().handle(Input::Transcript("yes".into()), &blocked());
+    assert_eq!(out, vec![toast("Not sent", "agent is waiting at a dialog: yes", Sound::Request)]);
+    let s = Snapshot { focused: Some(pane("w5:p2", None, None)), ..snap() };
+    let out = core().handle(Input::Transcript("yes".into()), &s);
+    assert_eq!(out, vec![toast("Not sent", "no agent in the focused pane: yes", Sound::Request)]);
+    let s = Snapshot { focused: None, ..snap() };
+    assert_eq!(core().handle(Input::Transcript("yes".into()), &s), vec![toast("Not sent", "no agent in the focused pane: yes", Sound::Request)]);
+}
+
+#[test]
+fn blank_transcript_is_dropped() {
+    assert_eq!(core().handle(Input::Transcript("   ".into()), &snap()), vec![toast("Heard nothing", "", Sound::None)]);
+}
+
+#[test]
+fn long_transcripts_are_previewed_in_the_toast() {
+    let text = "a".repeat(80);
+    let out = core().handle(Input::Transcript(text.clone()), &snap());
+    assert_eq!(out[0], Action::Prompt { target: "w5:p1".into(), text: text.clone() }, "the full text is sent");
+    assert_eq!(out[1], toast("Sent", &format!("{}…", "a".repeat(60)), Sound::None));
+}
+
+#[test]
+fn controller_connection_changes_are_toasted() {
+    assert_eq!(core().handle(Input::Connected, &snap()), vec![toast("Controller connected", "", Sound::None)]);
+    assert_eq!(core().handle(Input::Disconnected, &snap()), vec![toast("Controller disconnected", "", Sound::None)]);
+}

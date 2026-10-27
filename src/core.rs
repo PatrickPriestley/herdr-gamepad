@@ -68,9 +68,21 @@ impl Core {
 
     pub fn handle(&mut self, input: Input, snap: &Snapshot) -> Vec<Action> {
         match input {
+            Input::Press(b) if b == self.voice => {
+                if self.recording { return vec![]; }
+                self.recording = true;
+                vec![Action::StartRecording]
+            }
+            Input::Release(b) if b == self.voice => {
+                if !self.recording { return vec![]; }
+                self.recording = false;
+                vec![Action::StopRecording]
+            }
             Input::Press(b) => self.press(b, snap),
             Input::Release(_) => vec![],
-            Input::Connected | Input::Disconnected | Input::Transcript(_) => vec![],
+            Input::Connected => vec![toast("Controller connected", "", Sound::None)],
+            Input::Disconnected => vec![toast("Controller disconnected", "", Sound::None)],
+            Input::Transcript(text) => transcript(text, snap),
         }
     }
 
@@ -180,4 +192,31 @@ fn next_attention(snap: &Snapshot) -> Vec<Action> {
         Some(a) => vec![Action::FocusAgent(a.pane_id.clone())],
         None => vec![toast("No agent needs you", "", Sound::None)],
     }
+}
+
+/// Where a transcript goes depends on what the focused agent is doing.
+fn transcript(text: String, snap: &Snapshot) -> Vec<Action> {
+    let text = text.trim().to_string();
+    if text.is_empty() { return vec![toast("Heard nothing", "", Sound::None)]; }
+    let short = preview(&text);
+    let Some(p) = snap.focused.as_ref().filter(|p| p.agent.is_some()) else {
+        return vec![toast("Not sent", &format!("no agent in the focused pane: {short}"), Sound::Request)];
+    };
+    match p.status {
+        Some(Status::Idle) | Some(Status::Done) => vec![
+            Action::Prompt { target: p.pane_id.clone(), text },
+            toast("Sent", &short, Sound::None),
+        ],
+        Some(Status::Working) => vec![
+            Action::SendText { pane_id: p.pane_id.clone(), text },
+            toast("Typed, not sent", &format!("agent is working: {short}"), Sound::None),
+        ],
+        _ => vec![toast("Not sent", &format!("agent is waiting at a dialog: {short}"), Sound::Request)],
+    }
+}
+
+fn preview(text: &str) -> String {
+    let mut s: String = text.chars().take(60).collect();
+    if text.chars().count() > 60 { s.push('…'); }
+    s
 }
