@@ -144,7 +144,7 @@ fn spawn(&mut self, samples: Vec<f32>, cfg: &Config, state: &Path, tx: mpsc::Sen
     self.thread = Some(std::thread::spawn(move || {
         // A panic here would leave the core "transcribing" for ever; it is reported as a failure instead.
         let text = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            voice::write_wav(&wav, &samples)
+            voice::write_wav_cancellable(&wav, &samples, || cancellation.cancelled())
                 .and_then(|_| voice::transcribe(&CancellableCli { timeout: voice::WHISPER_TIMEOUT, cancellation: cancellation.clone() }, &model, &wav, &lang))
         }))
         .unwrap_or_else(|_| Err("transcription thread panicked".to_string()));

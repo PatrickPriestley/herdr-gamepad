@@ -50,11 +50,18 @@ pub fn append_capped(buf: &mut Vec<f32>, data: &[f32], max: usize) {
 
 pub fn long_enough(samples: usize) -> bool { samples >= RATE as usize * 3 / 10 }
 
+#[cfg(test)]
 pub fn write_wav(path: &Path, samples: &[f32]) -> Result<(), String> {
+    write_wav_cancellable(path, samples, || false)
+}
+
+pub fn write_wav_cancellable(path: &Path, samples: &[f32], cancelled: impl Fn() -> bool) -> Result<(), String> {
+    if cancelled() { return Err("recording export cancelled".into()); }
     let spec = hound::WavSpec { channels: 1, sample_rate: RATE, bits_per_sample: 16, sample_format: hound::SampleFormat::Int };
     let mut w = hound::WavWriter::create(path, spec).map_err(|e| e.to_string())?;
-    for s in samples {
-        w.write_sample((s * i16::MAX as f32) as i16).map_err(|e| e.to_string())?;
+    for chunk in samples.chunks(1024) {
+        if cancelled() { return Err("recording export cancelled".into()); }
+        for s in chunk { w.write_sample((s * i16::MAX as f32) as i16).map_err(|e| e.to_string())?; }
     }
     w.finalize().map_err(|e| e.to_string())
 }

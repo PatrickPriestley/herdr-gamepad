@@ -1,9 +1,10 @@
 ---
 change_id: background-operation
-status: approved
+status: diverged
 accepted_by: PatrickPriestley (instruction to plan and then implement)
 accepted_on: 2026-10-27
 divergences:
+  - Integration and worker-shutdown coverage was added after wiring; scoped guard mutations verified these assertions detect broken shutdown.
   - Use the user's three explicit requirements as the spec and proceed directly to implementation as requested, without a separate spec/plan PR approval round.
 ---
 # Plan: background gamepad operation
@@ -56,3 +57,28 @@ Log writes are serialized and rotate at 1 MiB, retaining one prior log. Show log
 - kill(pidfile): PID reuse can signal an unrelated process.
 - Hidden daemon pane: still ties operation to a terminal pane and does not meet R1.
 - Unbounded logs: a long-lived service should not grow state indefinitely.
+
+
+## Verification and independent review
+
+- `cargo test --locked`: 118 unit tests, 2 background integration tests, and 2 manifest tests passed.
+- `sh scripts/build.sh`, `actionlint .github/workflows/ci.yml`, and `git diff --check`: passed.
+- Fourteen isolated guard mutations were killed: singleton ownership, control serialization,
+  stop observation, legacy validation, stop timeout/acknowledgement, pre-spawn/running
+  cancellation, rotation/line size, worker cancellation/join, and export preflight/chunk cancellation.
+- Live Herdr 0.9.1: Start and repeated Start retained one daemon and unchanged pane inventory;
+  Show logs and Show mapping opened only the requested overlays; closing them preserved the
+  daemon; Stop/repeated Stop exited cleanly; restart produced a new instance. The old v0.1.0
+  Gamepad pane was closed and the local development plugin linked, preserving state/config.
+- GLM 5.3 Flash via OpenCode Go independently reviewed the implementation and ran tests.
+  Findings about token publication and Stop probe races described the earlier implementation:
+  the final `daemon.control` lock serializes both paths. The review's claim that production
+  never references daemon.control is contradicted by `control()` and its callers; removing
+  the Start control lock makes the serialization test fail. A token change after the original
+  instance exits intentionally acknowledges that instance, without stopping its replacement.
+  The requested real-Herdr integration was completed as recorded above.
+- Accepted review finding: WAV export could delay cancellation before whisper starts. Added
+  a failing regression, then cancellation before file creation and between 1024-sample chunks;
+  both guards were independently mutation-tested.
+- Fresh controller/microphone interaction after this lifecycle change still requires human
+  hardware validation. Automated tests cover cancellation and Herdr lifecycle/UI integration.
