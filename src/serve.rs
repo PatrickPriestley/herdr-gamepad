@@ -42,7 +42,7 @@ pub fn serve() -> Result<(), String> {
                 Some(Err(e)) => {
                     crate::logging::event(format_args!("herd-gamepad: snapshot: {e}"));
                     let _ = herdr.apply(&toast("Herdr unavailable", &e, Sound::Request));
-                    match on_snapshot_failure(input, &e) {
+                    match on_snapshot_failure(&mut core, input, &e) {
                         Some(i) => input = i,
                         None => continue,
                     }
@@ -107,7 +107,8 @@ pub fn needs_snapshot(input: &Input, voice_button: Btn) -> bool {
 /// clear state go through with an empty snapshot (the recording must still stop, and then its transcript is
 /// dropped as "nothing was focused"); a transcript that cannot be routed fails instead, so the next recording
 /// can start.
-pub fn on_snapshot_failure(input: Input, err: &str) -> Option<Input> {
+pub fn on_snapshot_failure(core: &mut Core, input: Input, err: &str) -> Option<Input> {
+    core.cancel_close();
     match input {
         Input::Transcript(_) => Some(Input::TranscriptFailed(format!("Herdr unavailable: {err}"))),
         Input::Release(_) | Input::Disconnected | Input::TranscriptFailed(_) => Some(input),
