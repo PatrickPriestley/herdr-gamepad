@@ -30,12 +30,18 @@ fixture() {
   printf '%s' "$f"
 }
 
-# A release directory holding the asset and its checksum; $2 = "corrupt" writes a wrong digest.
+# A release directory holding the asset and its checksum. $2 = "corrupt" writes a wrong digest;
+# "nomember" packs a tarball without herd-gamepad in it; "notgzip" publishes a plain file as
+# the asset. Both of the latter carry a correct digest, so only extraction can reject them.
 release() {
   mkdir -p "$1/payload"
   printf '#!/bin/sh\nprintf "prebuilt binary\\n"\n' > "$1/payload/herd-gamepad"
   chmod +x "$1/payload/herd-gamepad"
-  tar -czf "$1/release/$asset" -C "$1/payload" herd-gamepad
+  case "${2:-}" in
+    nomember) : > "$1/payload/other"; tar -czf "$1/release/$asset" -C "$1/payload" other ;;
+    notgzip)  printf 'not a tarball\n' > "$1/release/$asset" ;;
+    *)        tar -czf "$1/release/$asset" -C "$1/payload" herd-gamepad ;;
+  esac
   if [ "${2:-}" = corrupt ]; then
     printf '%s  %s\n' "$(printf 'x%.0s' $(seq 64) | tr x 0)" "$asset" > "$1/release/$asset.sha256"
   else
@@ -117,9 +123,27 @@ if run "$f" "$f/tools:$base_path" ""; then fail "fallbackfail: expected a non-ze
 grep -q "could not compile" "$f/log" || fail "fallbackfail: cargo's error is not in the log: $(cat "$f/log")"
 if grep -q "cargo is not installed" "$f/log"; then fail "fallbackfail: blamed a missing cargo although cargo ran: $(cat "$f/log")"; fi
 
+# 12. A verified tarball without a herd-gamepad member is not installed: cargo builds instead.
+f=$(fixture nomember); release "$f" nomember
+run "$f" "$f/tools:$base_path" "" || fail "nomember: exit $?: $(cat "$f/log")"
+[ "$("$f/bin/herd-gamepad")" = "new binary" ] || fail "nomember: expected the cargo build, got '$("$f/bin/herd-gamepad" 2>&1)'"
+[ -z "$(ls "$f/bin" | grep -v '^herd-gamepad$')" ] || fail "nomember: staging file left behind: $(ls "$f/bin")"
+
+# 13. The same tarball with no cargo: exit non-zero, old binary untouched, no empty binary.
+f=$(fixture nomembernocargo); release "$f" nomember
+if run "$f" "$base_path" ""; then fail "nomembernocargo: expected a non-zero exit: $(cat "$f/log")"; fi
+[ "$("$f/bin/herd-gamepad")" = "old binary" ] || fail "nomembernocargo: old binary was replaced by '$("$f/bin/herd-gamepad" 2>&1)'"
+grep -q "rustup.rs" "$f/log" || fail "nomembernocargo: message does not say how to get cargo: $(cat "$f/log")"
+
+# 14. A verified asset that is not a gzip tarball at all: the same, with no cargo.
+f=$(fixture notgzip); release "$f" notgzip
+if run "$f" "$base_path" ""; then fail "notgzip: expected a non-zero exit: $(cat "$f/log")"; fi
+[ "$("$f/bin/herd-gamepad")" = "old binary" ] || fail "notgzip: old binary was replaced by '$("$f/bin/herd-gamepad" 2>&1)'"
+[ -z "$(ls "$f/bin" | grep -v '^herd-gamepad$')" ] || fail "notgzip: staging file left behind: $(ls "$f/bin")"
+
 # 7. An installed copy (binary present, no Cargo.toml) does nothing and never downloads.
 f=$(fixture installed); release "$f"; rm "$f/Cargo.toml"
 run "$f" "$base_path" "" || fail "installed: exit $?: $(cat "$f/log")"
 [ "$("$f/bin/herd-gamepad")" = "old binary" ] || fail "installed: an installed copy was rebuilt"
 
-[ "$failures" = 0 ] && echo "build script: 11 cases passed" || { echo "build script: $failures failing" >&2; exit 1; }
+[ "$failures" = 0 ] && echo "build script: 14 cases passed" || { echo "build script: $failures failing" >&2; exit 1; }
