@@ -282,3 +282,17 @@ fn daemon_snapshot_follows_ui_focus_instead_of_its_own_pane() {
     core.handle(Input::Press(Btn::View), &snap);
     assert_eq!(core.mode(), Mode::Navigate);
 }
+
+#[test]
+fn cancellation_interrupts_a_running_command_and_cleans_it_up() {
+    let started = Instant::now();
+    let result = run_with_cancellation(&["/bin/sh", "-c", "sleep 5"], Duration::from_secs(10), || started.elapsed() >= Duration::from_millis(100));
+    assert!(matches!(&result, Err(e) if e.contains("cancelled")), "{result:?}");
+    assert!(started.elapsed() < Duration::from_secs(1));
+}
+
+#[test]
+fn cancellation_before_spawn_is_reported_without_starting_a_command() {
+    let result = run_with_cancellation(&["/nonexistent/never-spawn"], Duration::from_secs(10), || true);
+    assert_eq!(result, Err("command cancelled".into()));
+}
