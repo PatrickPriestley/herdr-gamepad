@@ -318,3 +318,47 @@ fn controller_connection_changes_are_toasted() {
     assert_eq!(core().handle(Input::Connected, &snap()), vec![toast("Controller connected", "", Sound::None)]);
     assert_eq!(core().handle(Input::Disconnected, &snap()), vec![toast("Controller disconnected", "", Sound::None)]);
 }
+
+// Added to kill the mutants cargo-mutants found on 2026-10-27.
+
+#[test]
+fn releasing_another_button_does_not_stop_the_recording() {
+    let mut c = core();
+    c.handle(Input::Press(Btn::RStick), &snap());
+    assert_eq!(c.handle(Input::Release(Btn::Up), &snap()), vec![]);
+    assert!(c.recording());
+}
+
+#[test]
+fn dpad_up_and_right_map_to_their_own_directions() {
+    let mut c = core();
+    assert_eq!(c.handle(Input::Press(Btn::Up), &snap()), vec![Action::FocusDirection { pane_id: "w5:p1".into(), dir: Dir::Up }]);
+    assert_eq!(c.handle(Input::Press(Btn::Right), &snap()), vec![Action::FocusDirection { pane_id: "w5:p1".into(), dir: Dir::Right }]);
+}
+
+#[test]
+fn left_trigger_goes_backwards_among_three_tabs() {
+    let mut s = snap();
+    s.tabs = vec![
+        Tab { id: "w5:t1".into(), number: 1, focused: false },
+        Tab { id: "w5:t2".into(), number: 2, focused: true },
+        Tab { id: "w5:t3".into(), number: 3, focused: false },
+    ];
+    assert_eq!(core().handle(Input::Press(Btn::Lt), &s), vec![Action::FocusTab("w5:t1".into())]);
+    assert_eq!(core().handle(Input::Press(Btn::Rt), &s), vec![Action::FocusTab("w5:t3".into())]);
+}
+
+#[test]
+fn y_picks_the_nearest_blocked_agent_in_sidebar_order() {
+    // Focused w5:p1 (#1); blocked agents in #2 (w7:p1) and #3 (w0:p3): the one in #2 is next.
+    let mut s = snap();
+    s.agents[1].status = Status::Blocked;
+    assert_eq!(core().handle(Input::Press(Btn::Y), &s), vec![Action::FocusAgent("w7:p1".into())]);
+}
+
+#[test]
+fn a_60_character_transcript_is_not_truncated() {
+    let text = "b".repeat(60);
+    let out = core().handle(Input::Transcript(text.clone()), &snap());
+    assert_eq!(out[1], toast("Sent", &text, Sound::None));
+}
