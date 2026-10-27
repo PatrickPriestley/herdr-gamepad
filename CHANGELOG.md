@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Submit dictation automatically to working agents as well as idle/done agents; no extra Enter press.
+
 - Run Gamepad as a Herdr background action with explicit Start and Stop controls.
 - Cancel active voice work and wait for shutdown on Stop.
 - Add on-demand recent logs in an overlay, with bounded log rotation.

@@ -64,7 +64,6 @@ pub enum Action {
     ToggleZoom(String),
     SendKeys { target: String, keys: Vec<Key> },
     Prompt { target: String, text: String },
-    SendText { pane_id: String, text: String },
     Toast { title: String, body: String, sound: Sound },
     StartRecording,
     StopRecording,
@@ -306,13 +305,9 @@ fn transcript(text: String, target: Option<String>, snap: &Snapshot) -> Vec<Acti
         return vec![toast("Not sent", &format!("no agent in the focused pane: {short}"), Sound::Request)];
     }
     match p.status {
-        Some(Status::Idle) | Some(Status::Done) => vec![
+        Some(Status::Idle) | Some(Status::Done) | Some(Status::Working) => vec![
             Action::Prompt { target: p.pane_id.clone(), text },
             toast("Sent", &short, Sound::None),
-        ],
-        Some(Status::Working) => vec![
-            Action::SendText { pane_id: p.pane_id.clone(), text },
-            toast("Typed, not sent", &format!("agent is working: {short}"), Sound::None),
         ],
         Some(Status::Blocked) => vec![toast("Not sent", &format!("agent is waiting at a dialog: {short}"), Sound::Request)],
         _ => vec![toast("Not sent", &format!("agent state unknown: {short}"), Sound::Request)],
