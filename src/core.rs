@@ -76,18 +76,56 @@ impl Core {
 
     fn press(&mut self, b: Btn, snap: &Snapshot) -> Vec<Action> {
         let focused = snap.focused.as_ref();
-        match b {
-            Btn::Up | Btn::Down | Btn::Left | Btn::Right => focused
-                .map(|p| vec![Action::FocusDirection { pane_id: p.pane_id.clone(), dir: dir_of(b) }])
-                .unwrap_or_default(),
-            Btn::Lb => step_workspace(snap, -1),
-            Btn::Rb => step_workspace(snap, 1),
-            Btn::Lt => step_tab(snap, -1),
-            Btn::Rt => step_tab(snap, 1),
-            Btn::Y => next_attention(snap),
-            Btn::X => focused.map(|p| vec![Action::ToggleZoom(p.pane_id.clone())]).unwrap_or_default(),
-            _ => vec![],
+        let agent_pane = focused.filter(|p| p.agent.is_some());
+        // Navigation works in both modes and leaves Respond.
+        let nav = match b {
+            Btn::Lb => Some(step_workspace(snap, -1)),
+            Btn::Rb => Some(step_workspace(snap, 1)),
+            Btn::Lt => Some(step_tab(snap, -1)),
+            Btn::Rt => Some(step_tab(snap, 1)),
+            Btn::Y => Some(next_attention(snap)),
+            Btn::X => Some(focused.map(|p| vec![Action::ToggleZoom(p.pane_id.clone())]).unwrap_or_default()),
+            _ => None,
+        };
+        if let Some(actions) = nav { return self.leave_respond(actions); }
+        match self.mode {
+            Mode::Navigate => match b {
+                Btn::Up | Btn::Down | Btn::Left | Btn::Right => focused
+                    .map(|p| vec![Action::FocusDirection { pane_id: p.pane_id.clone(), dir: dir_of(b) }])
+                    .unwrap_or_default(),
+                Btn::A => match agent_pane {
+                    Some(_) => { self.mode = Mode::Respond; vec![toast("Respond mode", "D-pad moves, A enters, B escapes, View leaves", Sound::None)] }
+                    None => vec![toast("No agent here", "focus a pane with an agent first", Sound::None)],
+                },
+                _ => vec![],
+            },
+            Mode::Respond => self.respond(b, agent_pane),
         }
+    }
+
+    fn leave_respond(&mut self, actions: Vec<Action>) -> Vec<Action> {
+        if self.mode != Mode::Respond { return actions; }
+        self.mode = Mode::Navigate;
+        let mut out = vec![toast("Navigate mode", "", Sound::None)];
+        out.extend(actions);
+        out
+    }
+
+    fn respond(&mut self, b: Btn, agent_pane: Option<&Pane>) -> Vec<Action> {
+        if b == Btn::View {
+            self.mode = Mode::Navigate;
+            return vec![toast("Navigate mode", "", Sound::None)];
+        }
+        let Some(p) = agent_pane else {
+            self.mode = Mode::Navigate;
+            return vec![toast("Navigate mode", "no agent in the focused pane", Sound::None)];
+        };
+        let key = match b {
+            Btn::Up => Key::Up, Btn::Down => Key::Down, Btn::Left => Key::Left, Btn::Right => Key::Right,
+            Btn::A => Key::Enter, Btn::B => Key::Esc,
+            _ => return vec![],
+        };
+        vec![Action::SendKeys { target: p.pane_id.clone(), keys: vec![key] }]
     }
 }
 

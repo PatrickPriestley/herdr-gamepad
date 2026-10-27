@@ -127,3 +127,87 @@ fn x_toggles_zoom_on_the_focused_pane() {
     let s = Snapshot { focused: None, ..snap() };
     assert_eq!(core().handle(Input::Press(Btn::X), &s), vec![]);
 }
+
+#[test]
+fn a_enters_respond_mode_without_sending_enter() {
+    let mut c = core();
+    let out = c.handle(Input::Press(Btn::A), &snap());
+    assert_eq!(c.mode(), Mode::Respond);
+    assert!(matches!(out.as_slice(), [Action::Toast { title, .. }] if title == "Respond mode"), "{out:?}");
+}
+
+#[test]
+fn a_in_navigate_toasts_when_the_pane_has_no_agent() {
+    let mut c = core();
+    let s = Snapshot { focused: Some(pane("w5:p2", None, None)), ..snap() };
+    let out = c.handle(Input::Press(Btn::A), &s);
+    assert_eq!(c.mode(), Mode::Navigate);
+    assert!(matches!(out.as_slice(), [Action::Toast { title, .. }] if title == "No agent here"), "{out:?}");
+}
+
+fn in_respond() -> Core {
+    let mut c = core();
+    c.handle(Input::Press(Btn::A), &snap());
+    assert_eq!(c.mode(), Mode::Respond);
+    c
+}
+
+fn keys(target: &str, key: Key) -> Vec<Action> {
+    vec![Action::SendKeys { target: target.into(), keys: vec![key] }]
+}
+
+#[test]
+fn respond_mode_sends_keys_to_the_focused_agent() {
+    let mut c = in_respond();
+    assert_eq!(c.handle(Input::Press(Btn::Up), &snap()), keys("w5:p1", Key::Up));
+    assert_eq!(c.handle(Input::Press(Btn::Down), &snap()), keys("w5:p1", Key::Down));
+    assert_eq!(c.handle(Input::Press(Btn::Left), &snap()), keys("w5:p1", Key::Left));
+    assert_eq!(c.handle(Input::Press(Btn::Right), &snap()), keys("w5:p1", Key::Right));
+    assert_eq!(c.handle(Input::Press(Btn::A), &snap()), keys("w5:p1", Key::Enter));
+    assert_eq!(c.handle(Input::Press(Btn::B), &snap()), keys("w5:p1", Key::Esc));
+    assert_eq!(c.mode(), Mode::Respond);
+}
+
+#[test]
+fn view_leaves_respond_mode() {
+    let mut c = in_respond();
+    let out = c.handle(Input::Press(Btn::View), &snap());
+    assert_eq!(c.mode(), Mode::Navigate);
+    assert!(matches!(out.as_slice(), [Action::Toast { title, .. }] if title == "Navigate mode"), "{out:?}");
+    assert_eq!(c.handle(Input::Press(Btn::View), &snap()), vec![], "View in Navigate does nothing");
+}
+
+#[test]
+fn navigation_buttons_in_respond_mode_act_and_return_to_navigate() {
+    for (b, expect) in [
+        (Btn::Rb, Action::FocusWorkspace("w7".into())),
+        (Btn::Rt, Action::FocusTab("w5:t7".into())),
+        (Btn::Y, Action::FocusAgent("w0:p3".into())),
+        (Btn::X, Action::ToggleZoom("w5:p1".into())),
+    ] {
+        let mut c = in_respond();
+        let out = c.handle(Input::Press(b), &snap());
+        assert_eq!(c.mode(), Mode::Navigate, "{b:?}");
+        assert_eq!(out, vec![toast("Navigate mode", "", Sound::None), expect], "{b:?}");
+    }
+}
+
+#[test]
+fn respond_mode_with_no_agent_in_the_focused_pane_falls_back_to_navigate() {
+    let mut c = in_respond();
+    let s = Snapshot { focused: Some(pane("w5:p2", None, None)), ..snap() };
+    let out = c.handle(Input::Press(Btn::A), &s);
+    assert_eq!(c.mode(), Mode::Navigate);
+    assert!(matches!(out.as_slice(), [Action::Toast { title, .. }] if title == "Navigate mode"), "{out:?}");
+    assert!(!out.iter().any(|a| matches!(a, Action::SendKeys { .. })));
+}
+
+#[test]
+fn menu_and_stick_clicks_do_nothing_in_either_mode() {
+    let mut c = core();
+    assert_eq!(c.handle(Input::Press(Btn::Menu), &snap()), vec![]);
+    assert_eq!(c.handle(Input::Press(Btn::LStick), &snap()), vec![]);
+    let mut c = in_respond();
+    assert_eq!(c.handle(Input::Press(Btn::Menu), &snap()), vec![]);
+    assert_eq!(c.handle(Input::Press(Btn::LStick), &snap()), vec![]);
+}
