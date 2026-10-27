@@ -27,6 +27,7 @@
 - Keep the mapping overlay on demand; starting no longer opens a daemon tab.
 - Upgrade from v0.1.0 by closing its old Gamepad pane once before starting.
 - Publish stable version tags automatically after both macOS CI jobs pass, with version and tag validation.
+- Install the tested macOS release binary (checksum-verified) instead of compiling; cargo stays as the fallback and as the development path.
 
 ## 0.1.0
 

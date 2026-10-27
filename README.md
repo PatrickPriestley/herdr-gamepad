@@ -11,8 +11,17 @@ Triangle. Tested by hand on a DualSense; other controllers are untested.
 
 ## Install
 
-Requires macOS, Herdr 0.9.1+, a Rust toolchain with the Xcode Command Line Tools, and
-Homebrew's `whisper-cpp`.
+Requirements:
+
+- macOS and Herdr 0.9.1 or later.
+- Git. A Rust toolchain (`cargo`) is needed only when no prebuilt binary matches your Mac.
+- `whisper-cli` from Homebrew's `whisper-cpp` package.
+- A controller paired with macOS and microphone permission for the terminal app.
+
+Herdr runs the build script during installation. It downloads the release binary for your
+Mac (Apple silicon or Intel), checks its SHA-256 against the checksum published with it, and
+only compiles from source with the committed Cargo.lock when no binary is available.
+Set `HERD_GAMEPAD_BUILD=source` to compile regardless.
 
 ```sh
 brew install whisper-cpp
