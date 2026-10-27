@@ -288,7 +288,7 @@ fn transcript(text: String, target: Option<String>, snap: &Snapshot) -> Vec<Acti
     }
 }
 
-fn preview(text: &str) -> String {
+pub fn preview(text: &str) -> String {
     let mut s: String = text.chars().take(60).collect();
     if text.chars().count() > 60 { s.push('…'); }
     s
