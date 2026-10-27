@@ -186,7 +186,7 @@ pub fn argv_for(a: &Action) -> Vec<String> {
             v.extend(s(&["--sound", sound_name(*sound)]));
             v
         }
-        Action::StartRecording | Action::StopRecording => vec![],
+        Action::StartRecording | Action::StopRecording | Action::CancelRecording => vec![],
     }
 }
 

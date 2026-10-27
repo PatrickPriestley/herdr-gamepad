@@ -112,6 +112,7 @@ fn prompt_text_is_one_argument_even_with_spaces() {
 fn recording_actions_are_not_herdr_commands() {
     assert!(argv_for(&Action::StartRecording).is_empty());
     assert!(argv_for(&Action::StopRecording).is_empty());
+    assert!(argv_for(&Action::CancelRecording).is_empty());
     let f = Fake::new(vec![]);
     Herdr { runner: &f }.apply(&Action::StartRecording).unwrap();
     assert!(f.calls().is_empty(), "apply must not run a command for them");

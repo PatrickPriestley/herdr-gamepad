@@ -5,7 +5,7 @@
 pub enum Btn { A, B, X, Y, Lb, Rb, Lt, Rt, View, Menu, Up, Down, Left, Right, LStick, RStick }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Input { Press(Btn), Release(Btn), Connected, Disconnected, Transcript(String) }
+pub enum Input { Press(Btn), Release(Btn), Connected, Disconnected, Transcript(String), TranscriptFailed(String) }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode { Navigate, Respond }
@@ -52,16 +52,31 @@ pub enum Action {
     Toast { title: String, body: String, sound: Sound },
     StartRecording,
     StopRecording,
+    CancelRecording,
 }
 
 pub fn toast(title: &str, body: &str, sound: Sound) -> Action {
     Action::Toast { title: title.into(), body: body.into(), sound }
 }
 
-pub struct Core { mode: Mode, recording: bool, voice_button: Btn }
+pub struct Core {
+    mode: Mode,
+    voice_button: Btn,
+    /// The pane Respond was entered on; a press with another pane focused leaves Respond instead of answering.
+    respond_pane: Option<String>,
+    /// The user has pressed a key while this pane's agent was Blocked: the next A may answer the dialog.
+    acknowledged_block: bool,
+    recording: bool,
+    /// A transcription is running; its result decides `voice_target`'s fate.
+    transcribing: bool,
+    /// The pane focused when the voice button was released: the only pane the transcript may go to.
+    voice_target: Option<String>,
+}
 
 impl Core {
-    pub fn new(voice_button: Btn) -> Self { Core { mode: Mode::Navigate, recording: false, voice_button } }
+    pub fn new(voice_button: Btn) -> Self {
+        Core { mode: Mode::Navigate, voice_button, respond_pane: None, acknowledged_block: false, recording: false, transcribing: false, voice_target: None }
+    }
     pub fn mode(&self) -> Mode { self.mode }
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn recording(&self) -> bool { self.recording }
@@ -70,19 +85,35 @@ impl Core {
         match input {
             Input::Press(b) if b == self.voice_button => {
                 if self.recording { return vec![]; }
+                if self.transcribing { return vec![toast("Still transcribing", "wait for the previous one", Sound::None)]; }
                 self.recording = true;
                 vec![Action::StartRecording]
             }
             Input::Release(b) if b == self.voice_button => {
                 if !self.recording { return vec![]; }
                 self.recording = false;
+                self.transcribing = true;
+                self.voice_target = snap.focused.as_ref().map(|p| p.pane_id.clone());
                 vec![Action::StopRecording]
             }
             Input::Press(b) => self.press(b, snap),
             Input::Release(_) => vec![],
             Input::Connected => vec![toast("Controller connected", "", Sound::None)],
-            Input::Disconnected => vec![toast("Controller disconnected", "", Sound::None)],
-            Input::Transcript(text) => transcript(text, snap),
+            Input::Disconnected => {
+                if !self.recording { return vec![toast("Controller disconnected", "", Sound::None)]; }
+                self.recording = false;
+                vec![Action::CancelRecording, toast("Controller disconnected", "recording discarded", Sound::Request)]
+            }
+            Input::Transcript(text) => {
+                self.transcribing = false;
+                let target = self.voice_target.take();
+                transcript(text, target, snap)
+            }
+            Input::TranscriptFailed(e) => {
+                self.transcribing = false;
+                self.voice_target = None;
+                vec![toast("Transcription failed", &e, Sound::Request)]
+            }
         }
     }
 
@@ -102,9 +133,10 @@ impl Core {
         if let Some(actions) = nav { return self.leave_respond(actions); }
         let blocked = agent_pane.is_some_and(|p| p.status == Some(Status::Blocked));
         if self.mode == Mode::Navigate && blocked && matches!(b, Btn::Up | Btn::Down | Btn::Left | Btn::Right) {
-            self.mode = Mode::Respond;
-            let mut out = vec![toast("Respond mode", "the agent is waiting for you", Sound::None)];
-            out.extend(self.respond(b, agent_pane));
+            // The D-pad press is the acknowledgement of this dialog; A may answer it next.
+            self.enter_respond(agent_pane, true);
+            let mut out = vec![toast("Respond mode", "the agent is waiting for you", Sound::Request)];
+            out.extend(self.respond(b, snap));
             return out;
         }
         match self.mode {
@@ -113,30 +145,53 @@ impl Core {
                     .map(|p| vec![Action::FocusDirection { pane_id: p.pane_id.clone(), dir: dir_of(b) }])
                     .unwrap_or_default(),
                 Btn::A => match agent_pane {
-                    Some(_) => { self.mode = Mode::Respond; vec![toast("Respond mode", "D-pad moves, A enters, B escapes, View leaves", Sound::None)] }
+                    Some(_) => {
+                        // Entering on a blocked agent is the acknowledgement; the next A confirms.
+                        self.enter_respond(agent_pane, blocked);
+                        vec![toast("Respond mode", "D-pad moves, A enters, B escapes, View leaves", Sound::None)]
+                    }
                     None => vec![toast("No agent here", "focus a pane with an agent first", Sound::None)],
                 },
                 _ => vec![],
             },
-            Mode::Respond => self.respond(b, agent_pane),
+            Mode::Respond => self.respond(b, snap),
         }
+    }
+
+    fn enter_respond(&mut self, agent_pane: Option<&Pane>, acknowledged: bool) {
+        self.mode = Mode::Respond;
+        self.respond_pane = agent_pane.map(|p| p.pane_id.clone());
+        self.acknowledged_block = acknowledged;
+    }
+
+    fn enter_navigate(&mut self) {
+        self.mode = Mode::Navigate;
+        self.respond_pane = None;
+        self.acknowledged_block = false;
     }
 
     fn leave_respond(&mut self, actions: Vec<Action>) -> Vec<Action> {
         if self.mode != Mode::Respond { return actions; }
-        self.mode = Mode::Navigate;
+        self.enter_navigate();
         let mut out = vec![toast("Navigate mode", "", Sound::None)];
         out.extend(actions);
         out
     }
 
-    fn respond(&mut self, b: Btn, agent_pane: Option<&Pane>) -> Vec<Action> {
+    fn respond(&mut self, b: Btn, snap: &Snapshot) -> Vec<Action> {
+        let focused = snap.focused.as_ref();
+        // Respond belongs to the pane it was entered on: a press after the focus moved must not answer
+        // whatever dialog the newly focused agent shows.
+        if focused.map(|p| &p.pane_id) != self.respond_pane.as_ref() {
+            self.enter_navigate();
+            return vec![toast("Navigate mode", "focus moved to another pane", Sound::None)];
+        }
         if b == Btn::View {
-            self.mode = Mode::Navigate;
+            self.enter_navigate();
             return vec![toast("Navigate mode", "", Sound::None)];
         }
-        let Some(p) = agent_pane else {
-            self.mode = Mode::Navigate;
+        let Some(p) = focused.filter(|p| p.agent.is_some()) else {
+            self.enter_navigate();
             return vec![toast("Navigate mode", "no agent in the focused pane", Sound::None)];
         };
         let key = match b {
@@ -144,6 +199,16 @@ impl Core {
             Btn::A => Key::Enter, Btn::B => Key::Esc,
             _ => return vec![],
         };
+        // Every dialog needs two presses: the first key pressed while the agent is Blocked acknowledges it, and
+        // only an acknowledged dialog can be answered with Enter. A status change (the dialog was answered, the
+        // agent worked on) resets the acknowledgement so the next dialog needs its own. Accepted limit: a
+        // multi-step dialog that stays Blocked throughout counts as one, so each later A sends Enter.
+        if p.status != Some(Status::Blocked) {
+            self.acknowledged_block = false;
+        } else if !self.acknowledged_block {
+            self.acknowledged_block = true;
+            if key == Key::Enter { return vec![toast("The agent is waiting", "press A again to confirm", Sound::Request)]; }
+        }
         vec![Action::SendKeys { target: p.pane_id.clone(), keys: vec![key] }]
     }
 }
@@ -194,14 +259,21 @@ fn next_attention(snap: &Snapshot) -> Vec<Action> {
     }
 }
 
-/// Where a transcript goes depends on what the focused agent is doing.
-fn transcript(text: String, snap: &Snapshot) -> Vec<Action> {
+/// A transcript goes to the pane that was focused when the user spoke (`target`), and only if it is still
+/// focused; where it goes in that pane depends on what its agent is doing.
+fn transcript(text: String, target: Option<String>, snap: &Snapshot) -> Vec<Action> {
     let text = text.trim().to_string();
     if text.is_empty() { return vec![toast("Heard nothing", "", Sound::None)]; }
     let short = preview(&text);
-    let Some(p) = snap.focused.as_ref().filter(|p| p.agent.is_some()) else {
-        return vec![toast("Not sent", &format!("no agent in the focused pane: {short}"), Sound::Request)];
+    let Some(target) = target else {
+        return vec![toast("Not sent", &format!("nothing was focused when you spoke: {short}"), Sound::Request)];
     };
+    let Some(p) = snap.focused.as_ref().filter(|p| p.pane_id == target) else {
+        return vec![toast("Not sent", &format!("focus moved since you spoke: {short}"), Sound::Request)];
+    };
+    if p.agent.is_none() {
+        return vec![toast("Not sent", &format!("no agent in the focused pane: {short}"), Sound::Request)];
+    }
     match p.status {
         Some(Status::Idle) | Some(Status::Done) => vec![
             Action::Prompt { target: p.pane_id.clone(), text },

@@ -158,6 +158,19 @@ fn keys(target: &str, key: Key) -> Vec<Action> {
     vec![Action::SendKeys { target: target.into(), keys: vec![key] }]
 }
 
+/// Holds and releases the voice button with `s` focused, so the next transcript has a target.
+fn spoke(c: &mut Core, s: &Snapshot) {
+    assert_eq!(c.handle(Input::Press(Btn::RStick), s), vec![Action::StartRecording]);
+    assert_eq!(c.handle(Input::Release(Btn::RStick), s), vec![Action::StopRecording]);
+}
+
+/// What a fresh core does with `text` spoken and transcribed with `s` focused throughout.
+fn said(text: &str, s: &Snapshot) -> Vec<Action> {
+    let mut c = core();
+    spoke(&mut c, s);
+    c.handle(Input::Transcript(text.into()), s)
+}
+
 #[test]
 fn respond_mode_sends_keys_to_the_focused_agent() {
     let mut c = in_respond();
@@ -196,12 +209,12 @@ fn navigation_buttons_in_respond_mode_act_and_return_to_navigate() {
 
 #[test]
 fn respond_mode_with_no_agent_in_the_focused_pane_falls_back_to_navigate() {
+    // The agent left the pane Respond was entered on.
     let mut c = in_respond();
-    let s = Snapshot { focused: Some(pane("w5:p2", None, None)), ..snap() };
+    let s = Snapshot { focused: Some(pane("w5:p1", None, None)), ..snap() };
     let out = c.handle(Input::Press(Btn::A), &s);
     assert_eq!(c.mode(), Mode::Navigate);
-    assert!(matches!(out.as_slice(), [Action::Toast { title, .. }] if title == "Navigate mode"), "{out:?}");
-    assert!(!out.iter().any(|a| matches!(a, Action::SendKeys { .. })));
+    assert_eq!(out, vec![toast("Navigate mode", "no agent in the focused pane", Sound::None)]);
 }
 
 #[test]
@@ -224,9 +237,10 @@ fn dpad_on_a_blocked_agent_switches_to_respond_and_sends_the_key() {
     let out = c.handle(Input::Press(Btn::Down), &blocked());
     assert_eq!(c.mode(), Mode::Respond);
     assert_eq!(out, vec![
-        toast("Respond mode", "the agent is waiting for you", Sound::None),
+        toast("Respond mode", "the agent is waiting for you", Sound::Request),
         Action::SendKeys { target: "w5:p1".into(), keys: vec![Key::Down] },
     ]);
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), keys("w5:p1", Key::Enter), "the D-pad press acknowledged the dialog");
 }
 
 #[test]
@@ -236,6 +250,7 @@ fn a_on_a_blocked_agent_only_enters_respond_mode() {
     let out = c.handle(Input::Press(Btn::A), &blocked());
     assert_eq!(c.mode(), Mode::Respond);
     assert!(!out.iter().any(|a| matches!(a, Action::SendKeys { .. })), "{out:?}");
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), keys("w5:p1", Key::Enter), "the second A confirms");
 }
 
 #[test]
@@ -273,19 +288,18 @@ fn recording_works_in_respond_mode_too() {
 
 #[test]
 fn transcript_to_an_idle_or_done_agent_is_submitted() {
-    let mut c = core();
-    assert_eq!(c.handle(Input::Transcript("run the tests".into()), &snap()), vec![
+    assert_eq!(said("run the tests", &snap()), vec![
         Action::Prompt { target: "w5:p1".into(), text: "run the tests".into() },
         toast("Sent", "run the tests", Sound::None),
     ]);
     let s = Snapshot { focused: Some(pane("w5:p1", Some("claude"), Some(Status::Done))), ..snap() };
-    assert!(matches!(c.handle(Input::Transcript("ok".into()), &s).as_slice(), [Action::Prompt { .. }, _]));
+    assert!(matches!(said("ok", &s).as_slice(), [Action::Prompt { .. }, _]));
 }
 
 #[test]
 fn transcript_to_a_working_agent_is_typed_but_not_sent() {
     let s = Snapshot { focused: Some(pane("w5:p1", Some("claude"), Some(Status::Working))), ..snap() };
-    assert_eq!(core().handle(Input::Transcript("  also check lint  ".into()), &s), vec![
+    assert_eq!(said("  also check lint  ", &s), vec![
         Action::SendText { pane_id: "w5:p1".into(), text: "also check lint".into() },
         toast("Typed, not sent", "agent is working: also check lint", Sound::None),
     ]);
@@ -293,26 +307,24 @@ fn transcript_to_a_working_agent_is_typed_but_not_sent() {
 
 #[test]
 fn transcript_is_dropped_when_the_agent_waits_at_a_dialog_or_is_absent() {
-    let out = core().handle(Input::Transcript("yes".into()), &blocked());
-    assert_eq!(out, vec![toast("Not sent", "agent is waiting at a dialog: yes", Sound::Request)]);
+    assert_eq!(said("yes", &blocked()), vec![toast("Not sent", "agent is waiting at a dialog: yes", Sound::Request)]);
     let s = Snapshot { focused: Some(pane("w5:p2", None, None)), ..snap() };
-    let out = core().handle(Input::Transcript("yes".into()), &s);
-    assert_eq!(out, vec![toast("Not sent", "no agent in the focused pane: yes", Sound::Request)]);
-    let s = Snapshot { focused: None, ..snap() };
-    assert_eq!(core().handle(Input::Transcript("yes".into()), &s), vec![toast("Not sent", "no agent in the focused pane: yes", Sound::Request)]);
+    assert_eq!(said("yes", &s), vec![toast("Not sent", "no agent in the focused pane: yes", Sound::Request)]);
     let s = Snapshot { focused: Some(pane("w5:p1", Some("claude"), Some(Status::Unknown))), ..snap() };
-    assert_eq!(core().handle(Input::Transcript("yes".into()), &s), vec![toast("Not sent", "agent state unknown: yes", Sound::Request)]);
+    assert_eq!(said("yes", &s), vec![toast("Not sent", "agent state unknown: yes", Sound::Request)]);
 }
 
 #[test]
 fn blank_transcript_is_dropped() {
-    assert_eq!(core().handle(Input::Transcript("   ".into()), &snap()), vec![toast("Heard nothing", "", Sound::None)]);
+    assert_eq!(said("   ", &snap()), vec![toast("Heard nothing", "", Sound::None)]);
+    let s = Snapshot { focused: None, ..snap() };
+    assert_eq!(said("   ", &s), vec![toast("Heard nothing", "", Sound::None)], "blank wins over a missing target");
 }
 
 #[test]
 fn long_transcripts_are_previewed_in_the_toast() {
     let text = "a".repeat(80);
-    let out = core().handle(Input::Transcript(text.clone()), &snap());
+    let out = said(&text, &snap());
     assert_eq!(out[0], Action::Prompt { target: "w5:p1".into(), text: text.clone() }, "the full text is sent");
     assert_eq!(out[1], toast("Sent", &format!("{}…", "a".repeat(60)), Sound::None));
 }
@@ -367,6 +379,184 @@ fn y_picks_the_nearest_blocked_agent_in_sidebar_order() {
 #[test]
 fn a_60_character_transcript_is_not_truncated() {
     let text = "b".repeat(60);
-    let out = core().handle(Input::Transcript(text.clone()), &snap());
+    let out = said(&text, &snap());
     assert_eq!(out[1], toast("Sent", &text, Sound::None));
+}
+
+// Review fixes, 2026-10-27: Respond is tied to a pane and a dialog; recordings are cancelled on disconnect;
+// a transcript goes to the pane focused when the user spoke.
+
+fn focus_moved() -> Vec<Action> { vec![toast("Navigate mode", "focus moved to another pane", Sound::None)] }
+
+#[test]
+fn respond_leaves_when_focus_moves_to_another_pane() {
+    // Respond was entered on idle w5:p1; the UI focus moved to a blocked agent in w5:p2. A must not answer it.
+    let mut c = in_respond();
+    let s = Snapshot { focused: Some(pane("w5:p2", Some("claude"), Some(Status::Blocked))), ..snap() };
+    assert_eq!(c.handle(Input::Press(Btn::A), &s), focus_moved());
+    assert_eq!(c.mode(), Mode::Navigate);
+    assert_eq!(c.handle(Input::Press(Btn::A), &s), vec![toast("Respond mode", "D-pad moves, A enters, B escapes, View leaves", Sound::None)], "A in Navigate enters Respond on the new pane without sending Enter");
+}
+
+#[test]
+fn respond_leaves_when_nothing_is_focused() {
+    let mut c = in_respond();
+    let s = Snapshot { focused: None, ..snap() };
+    assert_eq!(c.handle(Input::Press(Btn::Down), &s), focus_moved());
+    assert_eq!(c.mode(), Mode::Navigate);
+}
+
+#[test]
+fn view_on_a_moved_focus_still_reports_the_move() {
+    let mut c = in_respond();
+    let s = Snapshot { focused: Some(pane("w5:p2", Some("claude"), Some(Status::Idle))), ..snap() };
+    assert_eq!(c.handle(Input::Press(Btn::View), &s), focus_moved());
+    assert_eq!(c.mode(), Mode::Navigate);
+}
+
+fn working() -> Snapshot {
+    Snapshot { focused: Some(pane("w5:p1", Some("claude"), Some(Status::Working))), ..snap() }
+}
+
+#[test]
+fn each_dialog_needs_its_own_acknowledgement() {
+    let mut c = in_respond();
+    // Dialog 1: the D-pad press acknowledges it, A answers it.
+    assert_eq!(c.handle(Input::Press(Btn::Down), &blocked()), keys("w5:p1", Key::Down));
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), keys("w5:p1", Key::Enter));
+    // The agent works again; keys still go through.
+    assert_eq!(c.handle(Input::Press(Btn::Down), &working()), keys("w5:p1", Key::Down));
+    // Dialog 2: the first A is swallowed, the second confirms.
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("The agent is waiting", "press A again to confirm", Sound::Request)]);
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), keys("w5:p1", Key::Enter));
+    assert_eq!(c.mode(), Mode::Respond);
+}
+
+#[test]
+fn a_on_a_dialog_that_appeared_after_entering_respond_is_swallowed_once() {
+    let mut c = in_respond();
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("The agent is waiting", "press A again to confirm", Sound::Request)]);
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), keys("w5:p1", Key::Enter));
+}
+
+#[test]
+fn b_on_a_fresh_dialog_is_sent_and_counts_as_the_acknowledgement() {
+    let mut c = in_respond();
+    assert_eq!(c.handle(Input::Press(Btn::B), &blocked()), keys("w5:p1", Key::Esc));
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), keys("w5:p1", Key::Enter));
+}
+
+#[test]
+fn consecutive_a_presses_on_an_acknowledged_dialog_each_send_enter() {
+    // Accepted limit: a multi-step dialog (say, two questions in a row) that stays `blocked` throughout cannot be
+    // told apart from one dialog, so once acknowledged every A sends Enter until the status changes.
+    let mut c = in_respond();
+    c.handle(Input::Press(Btn::Down), &blocked());
+    for _ in 0..3 {
+        assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), keys("w5:p1", Key::Enter));
+    }
+}
+
+#[test]
+fn leaving_respond_forgets_the_acknowledgement() {
+    let mut c = in_respond();
+    c.handle(Input::Press(Btn::Down), &blocked());
+    c.handle(Input::Press(Btn::View), &blocked());
+    // Re-entering with A on the blocked pane: that A is the acknowledgement, the next confirms.
+    c.handle(Input::Press(Btn::A), &blocked());
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), keys("w5:p1", Key::Enter));
+    // Re-entering with A on an idle pane that then blocks: the first A is swallowed.
+    c.handle(Input::Press(Btn::View), &snap());
+    c.handle(Input::Press(Btn::A), &snap());
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("The agent is waiting", "press A again to confirm", Sound::Request)]);
+}
+
+#[test]
+fn menu_in_respond_does_not_acknowledge_a_dialog() {
+    let mut c = in_respond();
+    assert_eq!(c.handle(Input::Press(Btn::Menu), &blocked()), vec![]);
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("The agent is waiting", "press A again to confirm", Sound::Request)]);
+}
+
+#[test]
+fn disconnecting_while_recording_cancels_it() {
+    let mut c = core();
+    c.handle(Input::Press(Btn::RStick), &snap());
+    assert_eq!(c.handle(Input::Disconnected, &snap()), vec![
+        Action::CancelRecording,
+        toast("Controller disconnected", "recording discarded", Sound::Request),
+    ]);
+    assert!(!c.recording());
+    assert_eq!(c.handle(Input::Release(Btn::RStick), &snap()), vec![], "the release of the cancelled recording stops nothing");
+    assert_eq!(c.handle(Input::Press(Btn::RStick), &snap()), vec![Action::StartRecording], "nothing is transcribing, so the next hold records");
+}
+
+#[test]
+fn a_second_recording_cannot_start_while_transcribing() {
+    let mut c = core();
+    spoke(&mut c, &snap());
+    assert_eq!(c.handle(Input::Press(Btn::RStick), &snap()), vec![toast("Still transcribing", "wait for the previous one", Sound::None)]);
+    assert!(!c.recording());
+    assert_eq!(c.handle(Input::Release(Btn::RStick), &snap()), vec![]);
+}
+
+#[test]
+fn a_transcript_clears_the_way_for_the_next_recording() {
+    let mut c = core();
+    spoke(&mut c, &snap());
+    assert!(matches!(c.handle(Input::Transcript("hi".into()), &snap()).as_slice(), [Action::Prompt { .. }, _]));
+    assert_eq!(c.handle(Input::Press(Btn::RStick), &snap()), vec![Action::StartRecording]);
+}
+
+#[test]
+fn a_failed_transcription_is_toasted_and_clears_the_way_for_the_next_recording() {
+    let mut c = core();
+    spoke(&mut c, &snap());
+    assert_eq!(c.handle(Input::TranscriptFailed("whisper-cli: timed out after 90s".into()), &snap()), vec![
+        toast("Transcription failed", "whisper-cli: timed out after 90s", Sound::Request),
+    ]);
+    assert_eq!(c.handle(Input::Press(Btn::RStick), &snap()), vec![Action::StartRecording]);
+}
+
+#[test]
+fn the_transcript_target_is_captured_at_release_and_honoured_on_arrival() {
+    let mut c = core();
+    let p2 = Snapshot { focused: Some(pane("w5:p2", Some("claude"), Some(Status::Idle))), ..snap() };
+    assert_eq!(c.handle(Input::Press(Btn::RStick), &snap()), vec![Action::StartRecording]);
+    assert_eq!(c.handle(Input::Release(Btn::RStick), &p2), vec![Action::StopRecording]);
+    assert_eq!(c.handle(Input::Transcript("hi".into()), &p2), vec![
+        Action::Prompt { target: "w5:p2".into(), text: "hi".into() },
+        toast("Sent", "hi", Sound::None),
+    ]);
+}
+
+#[test]
+fn a_transcript_is_dropped_when_focus_moved_since_the_user_spoke() {
+    let mut c = core();
+    spoke(&mut c, &snap());
+    let s = Snapshot { focused: Some(pane("w7:p1", Some("claude"), Some(Status::Idle))), ..snap() };
+    assert_eq!(c.handle(Input::Transcript("yes".into()), &s), vec![toast("Not sent", "focus moved since you spoke: yes", Sound::Request)]);
+    let mut c = core();
+    spoke(&mut c, &snap());
+    let s = Snapshot { focused: None, ..snap() };
+    assert_eq!(c.handle(Input::Transcript("yes".into()), &s), vec![toast("Not sent", "focus moved since you spoke: yes", Sound::Request)]);
+}
+
+#[test]
+fn a_transcript_is_dropped_when_nothing_was_focused_when_the_user_spoke() {
+    let mut c = core();
+    spoke(&mut c, &Snapshot { focused: None, ..snap() });
+    assert_eq!(c.handle(Input::Transcript("yes".into()), &snap()), vec![toast("Not sent", "nothing was focused when you spoke: yes", Sound::Request)]);
+}
+
+#[test]
+fn a_transcript_target_is_used_once() {
+    let mut c = core();
+    spoke(&mut c, &snap());
+    c.handle(Input::Transcript("one".into()), &snap());
+    assert_eq!(c.handle(Input::Transcript("two".into()), &snap()), vec![toast("Not sent", "nothing was focused when you spoke: two", Sound::Request)]);
+    let mut c = core();
+    spoke(&mut c, &snap());
+    c.handle(Input::TranscriptFailed("x".into()), &snap());
+    assert_eq!(c.handle(Input::Transcript("two".into()), &snap()), vec![toast("Not sent", "nothing was focused when you spoke: two", Sound::Request)]);
 }
