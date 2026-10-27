@@ -34,25 +34,15 @@ pub fn serve() -> Result<(), String> {
         }
         inputs.extend(rx.try_iter());
         for mut input in inputs {
-            // Pressing the voice button and releasing any other needs no snapshot; releasing the voice button
-            // does, to capture where the user spoke.
-            let needs_snapshot = match &input {
-                Input::Press(b) => *b != cfg.voice_button,
-                Input::Release(b) => *b == cfg.voice_button,
-                _ => true,
-            };
-            let snap = match needs_snapshot.then(|| herdr.snapshot()) {
+            let snap = match needs_snapshot(&input, cfg.voice_button).then(|| herdr.snapshot()) {
                 None => Snapshot::default(),
                 Some(Ok(s)) => s,
                 Some(Err(e)) => {
                     eprintln!("herd-gamepad: snapshot: {e}");
                     let _ = herdr.apply(&toast("Herdr unavailable", &e, Sound::Request));
-                    match input {
-                        // The transcript cannot be routed; fail it so the next recording can start.
-                        Input::Transcript(_) => input = Input::TranscriptFailed(format!("Herdr unavailable: {e}")),
-                        // The recording must still stop; with no focused pane its transcript is dropped.
-                        Input::Release(_) => {}
-                        _ => continue,
+                    match on_snapshot_failure(input, &e) {
+                        Some(i) => input = i,
+                        None => continue,
                     }
                     Snapshot::default()
                 }
@@ -82,15 +72,42 @@ pub fn serve() -> Result<(), String> {
     }
 }
 
+/// Whether the core needs to see Herdr for `input`. Starting a recording, releasing any other button, the
+/// controller coming or going and a failed transcription route nothing; releasing the voice button does need
+/// one, to capture where the user spoke.
+pub fn needs_snapshot(input: &Input, voice_button: Btn) -> bool {
+    match input {
+        Input::Press(b) => *b != voice_button,
+        Input::Release(b) => *b == voice_button,
+        Input::Connected | Input::Disconnected | Input::TranscriptFailed(_) => false,
+        Input::Transcript(_) => true,
+    }
+}
+
+/// What the core gets when the snapshot for `input` failed with `err`: None skips the core. The inputs that
+/// clear state go through with an empty snapshot (the recording must still stop, and then its transcript is
+/// dropped as "nothing was focused"); a transcript that cannot be routed fails instead, so the next recording
+/// can start.
+pub fn on_snapshot_failure(input: Input, err: &str) -> Option<Input> {
+    match input {
+        Input::Transcript(_) => Some(Input::TranscriptFailed(format!("Herdr unavailable: {err}"))),
+        Input::Release(_) | Input::Disconnected | Input::TranscriptFailed(_) => Some(input),
+        Input::Press(_) | Input::Connected => None,
+    }
+}
+
 /// The daemon's lock file, `state/daemon.pid`, locked: Ok(None) when another process holds the lock.
 /// Dropping the file releases the lock.
 fn try_lock(state: &Path) -> Result<Option<File>, String> {
     let path = state.join("daemon.pid");
     let f = File::options().read(true).write(true).create(true).truncate(false).open(&path)
         .map_err(|e| format!("{}: {e}", path.display()))?;
-    match unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } {
-        0 => Ok(Some(f)),
-        _ => Ok(None),
+    if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 { return Ok(Some(f)); }
+    let e = std::io::Error::last_os_error();
+    match e.raw_os_error() {
+        // EAGAIN on macOS: the only errno that means "someone else holds it".
+        Some(libc::EWOULDBLOCK) => Ok(None),
+        _ => Err(format!("daemon.pid lock: {e}")),
     }
 }
 
@@ -109,8 +126,12 @@ fn spawn_transcribe(samples: Vec<f32>, cfg: &Config, state: &Path, tx: mpsc::Sen
     }
     let (model, lang, wav): (PathBuf, String, PathBuf) = (cfg.model.clone(), cfg.language.clone(), state.join("voice.wav"));
     std::thread::spawn(move || {
-        let text = voice::write_wav(&wav, &samples)
-            .and_then(|_| voice::transcribe(&Cli { timeout: voice::WHISPER_TIMEOUT }, &model, &wav, &lang));
+        // A panic here would leave the core "transcribing" for ever; it is reported as a failure instead.
+        let text = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            voice::write_wav(&wav, &samples)
+                .and_then(|_| voice::transcribe(&Cli { timeout: voice::WHISPER_TIMEOUT }, &model, &wav, &lang))
+        }))
+        .unwrap_or_else(|_| Err("transcription thread panicked".to_string()));
         match text {
             Ok(t) => { let _ = tx.send(Input::Transcript(t)); }
             Err(e) => {

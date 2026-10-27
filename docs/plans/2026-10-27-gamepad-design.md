@@ -71,6 +71,12 @@ Auto-switch: a D-pad press while the focused agent is `blocked` switches to Resp
 and is then handled there (a toast says so). A does not auto-switch and never sends Enter on
 the press that entered Respond, so an approval is always two deliberate presses.
 
+Respond mode is tied to the pane it was entered on; a press with another pane focused
+leaves it and sends nothing. Every Enter needs its own acknowledging press (D-pad, B, or a
+swallowed A) while the agent is blocked, so no dialog is ever confirmed by a single press.
+Disconnecting leaves Respond and discards a recording in progress. A transcript goes only
+to the pane focused when the voice button was released.
+
 Keys go through `agent send-keys` with the pane id as target, never `pane send-keys`, so
 Herdr refuses them when no agent occupies the pane. The daemon never answers a dialog on
 its own.
@@ -94,6 +100,7 @@ Routing by the focused agent's state:
 | idle, done | `agent prompt` submits it; toast "Sent: …" |
 | working | `pane send-text` types it without Enter; toast "Typed, not sent: …" |
 | blocked, unknown, no agent | dropped; toast says why |
+| focus moved since you spoke, or nothing focused when you spoke | dropped; toast says which |
 | blank transcript | dropped; toast "Heard nothing" |
 
 Recordings shorter than 0.3 s are dropped; longer than 60 s are cut. `herd-gamepad setup`

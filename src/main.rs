@@ -10,6 +10,7 @@ mod voice;
 #[cfg(test)] mod engine_tests;
 #[cfg(test)] mod herdr_tests;
 #[cfg(test)] mod pad_tests;
+#[cfg(test)] mod serve_tests;
 #[cfg(test)] mod voice_tests;
 
 use herdr::Runner;
