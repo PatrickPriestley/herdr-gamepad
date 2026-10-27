@@ -84,6 +84,8 @@ impl Core {
             Btn::Rb => step_workspace(snap, 1),
             Btn::Lt => step_tab(snap, -1),
             Btn::Rt => step_tab(snap, 1),
+            Btn::Y => next_attention(snap),
+            Btn::X => focused.map(|p| vec![Action::ToggleZoom(p.pane_id.clone())]).unwrap_or_default(),
             _ => vec![],
         }
     }
@@ -115,4 +117,22 @@ fn step(len: usize, current: Option<usize>, delta: i32) -> Option<usize> {
     if len < 2 { return None; }
     let i = current? as i32;
     Some((i + delta).rem_euclid(len as i32) as usize)
+}
+
+/// The first blocked agent after the focused pane in sidebar order (space number, then pane id),
+/// wrapping; failing that the first done one; failing that a toast.
+fn next_attention(snap: &Snapshot) -> Vec<Action> {
+    let number = |ws: &str| snap.workspaces.iter().find(|w| w.id == ws).map_or(u32::MAX, |w| w.number);
+    let mut agents: Vec<&Agent> = snap.agents.iter().collect();
+    agents.sort_by(|a, b| (number(&a.workspace_id), &a.pane_id).cmp(&(number(&b.workspace_id), &b.pane_id)));
+    let n = agents.len();
+    if n == 0 { return vec![toast("No agent needs you", "", Sound::None)]; }
+    let start = snap.focused.as_ref()
+        .and_then(|p| agents.iter().position(|a| a.pane_id == p.pane_id))
+        .map_or(0, |i| i + 1);
+    let pick = |want: Status| (0..n).map(|k| agents[(start + k) % n]).find(|a| a.status == want);
+    match pick(Status::Blocked).or_else(|| pick(Status::Done)) {
+        Some(a) => vec![Action::FocusAgent(a.pane_id.clone())],
+        None => vec![toast("No agent needs you", "", Sound::None)],
+    }
 }

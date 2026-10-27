@@ -88,3 +88,42 @@ fn triggers_step_tabs_and_wrap() {
     s.tabs.truncate(1);
     assert_eq!(c.handle(Input::Press(Btn::Rt), &s), vec![], "one tab: nothing to step to");
 }
+
+#[test]
+fn y_focuses_the_next_blocked_agent_after_the_focused_pane() {
+    assert_eq!(core().handle(Input::Press(Btn::Y), &snap()), vec![Action::FocusAgent("w0:p3".into())]);
+}
+
+#[test]
+fn y_prefers_blocked_over_done_even_when_done_comes_first() {
+    // w7:p1 (done) sits before w0:p3 (blocked) in sidebar order; blocked wins.
+    assert_eq!(core().handle(Input::Press(Btn::Y), &snap()), vec![Action::FocusAgent("w0:p3".into())]);
+    let mut s = snap();
+    s.agents.retain(|a| a.status != Status::Blocked);
+    assert_eq!(core().handle(Input::Press(Btn::Y), &s), vec![Action::FocusAgent("w7:p1".into())], "no blocked: the first done");
+}
+
+#[test]
+fn y_cycles_past_the_focused_pane_and_wraps() {
+    let mut s = snap();
+    s.focused = Some(pane("w0:p3", Some("claude"), Some(Status::Blocked)));
+    s.agents.push(Agent { pane_id: "w7:p9".into(), workspace_id: "w7".into(), status: Status::Blocked });
+    // Order: w5:p1, w7:p1, w7:p9, w0:p3. After w0:p3 the ring wraps: w7:p9 comes before w0:p3 itself.
+    assert_eq!(core().handle(Input::Press(Btn::Y), &s), vec![Action::FocusAgent("w7:p9".into())]);
+}
+
+#[test]
+fn y_toasts_when_no_agent_needs_you() {
+    let mut s = snap();
+    for a in &mut s.agents { a.status = Status::Working; }
+    assert_eq!(core().handle(Input::Press(Btn::Y), &s), vec![toast("No agent needs you", "", Sound::None)]);
+    s.agents.clear();
+    assert_eq!(core().handle(Input::Press(Btn::Y), &s), vec![toast("No agent needs you", "", Sound::None)]);
+}
+
+#[test]
+fn x_toggles_zoom_on_the_focused_pane() {
+    assert_eq!(core().handle(Input::Press(Btn::X), &snap()), vec![Action::ToggleZoom("w5:p1".into())]);
+    let s = Snapshot { focused: None, ..snap() };
+    assert_eq!(core().handle(Input::Press(Btn::X), &s), vec![]);
+}
