@@ -44,12 +44,11 @@ fn check_transcript_feedback(status: Status) {
             (command, if succeeds { Ok("") } else { Err("delivery failed") }),
             ("herdr notification show", Ok("")),
         ]);
-        apply_actions(&Herdr { runner: &fake }, actions, |_| panic!("unexpected recording"));
+        apply_actions(&Herdr { runner: &fake }, actions, &mut crate::feedback::Feedback::default(), |_| panic!("unexpected recording"));
         let calls = fake.calls();
-        assert_eq!(calls.len(), 2, "one delivery and exactly one outcome: {calls:?}");
+        assert_eq!(calls.len(), if succeeds {1} else {2}, "only failed delivery notifies: {calls:?}");
         assert_eq!(calls[0], format!("{command} w5:p1 hello"));
-        let outcome = if !succeeds { "Herdr refused" } else { "Sent" };
-        assert!(calls[1].starts_with(&format!("herdr notification show {outcome} --body ")), "{calls:?}");
+        if !succeeds {assert!(calls[1].starts_with("herdr notification show Herdr refused --body "), "{calls:?}");}
     }
 }
 
@@ -60,7 +59,7 @@ fn prompt_delivery_feedback_tracks_the_command_result() { check_transcript_feedb
 fn working_prompt_delivery_feedback_tracks_the_command_result() { check_transcript_feedback(Status::Working); }
 
 #[test]
-fn a_failed_mode_toast_does_not_discard_the_key_press() {
+fn quiet_mode_feedback_preserves_the_key_press() {
     use crate::herdr::Herdr;
     use crate::herdr_tests::Fake;
     let mut snap = crate::engine_tests::snap();
@@ -70,8 +69,8 @@ fn a_failed_mode_toast_does_not_discard_the_key_press() {
         ("herdr notification show", Err("notifications unavailable")),
         ("herdr agent send-keys", Ok("")),
     ]);
-    apply_actions(&Herdr { runner: &fake }, actions, |_| panic!("unexpected recording"));
-    assert_eq!(fake.calls().last().map(String::as_str), Some("herdr agent send-keys w5:p1 down"));
+    apply_actions(&Herdr { runner: &fake }, actions, &mut crate::feedback::Feedback::default(), |_| panic!("unexpected recording"));
+    assert_eq!(fake.calls(), vec!["herdr agent send-keys w5:p1 down"]);
 }
 
 #[test]
@@ -95,7 +94,7 @@ fn close_requests_do_not_claim_completion_and_failure_is_reported() {
         let actions = c.handle(Input::Press(Btn::A), &s);
         let command = if choice == Btn::X { "herdr pane close w5:p1" } else { "herdr workspace close w5" };
         let fake = Fake::new(vec![(command, if success {Ok("")} else {Err("target gone")}), ("herdr notification show", Ok(""))]);
-        apply_actions(&Herdr { runner: &fake }, actions, |_| panic!("unexpected recording"));
+        apply_actions(&Herdr { runner: &fake }, actions, &mut crate::feedback::Feedback::default(), |_| panic!("unexpected recording"));
         let expected = if success { vec![command] } else { vec![command, "herdr notification show Herdr refused --body target gone --sound request"] };
         assert_eq!(fake.calls(), expected);
     }}

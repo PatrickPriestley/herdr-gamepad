@@ -1,6 +1,7 @@
 //! The daemon: controller events in, herdr commands out, with push-to-talk transcribed off-thread.
 
 use crate::config::Config;
+use crate::feedback::{Feedback, MenuUi};
 use crate::engine::*;
 use crate::herdr::{Cli, CancellableCli, Herdr, Runner};
 use crate::lifecycle::{Daemon, Cancellation};
@@ -25,10 +26,13 @@ pub fn serve() -> Result<(), String> {
     let mut gilrs = gilrs::Gilrs::new().map_err(|e| format!("gilrs: {e}"))?;
     let mut pad = Pad::new();
     let mut core = Core::new(cfg.voice_button);
+    let mut feedback = Feedback::default();
+    let mut menu = MenuUi::new(&state);
     let mut recorder: Option<Recorder> = None;
     let (tx, rx) = mpsc::channel::<Input>();
     crate::logging::event(format_args!("herd-gamepad: listening; {} controller(s) connected; hold {} to talk", gilrs.gamepads().count(), cfg.voice_button.label()));
     while !cancellation.cancelled() {
+        if let Err(e)=menu.sync(&mut core,&herdr) {feedback.emit(&herdr,&toast("Close menu unavailable",&e,Sound::Request));}
         let inputs = next_inputs(|| {
             gilrs.next_event()
                 .map(|ev| pad::raw(&ev.event).and_then(|r| pad.input(r)))
@@ -40,7 +44,7 @@ pub fn serve() -> Result<(), String> {
                 Some(Ok(s)) => s,
                 Some(Err(e)) => {
                     crate::logging::event(format_args!("herd-gamepad: snapshot: {e}"));
-                    let _ = herdr.apply(&toast("Herdr unavailable", &e, Sound::Request));
+                    feedback.emit(&herdr,&toast("Herdr unavailable", &e, Sound::Request));
                     match on_snapshot_failure(&mut core, input, &e) {
                         Some(i) => input = i,
                         None => continue,
@@ -50,13 +54,18 @@ pub fn serve() -> Result<(), String> {
             };
             if cancellation.cancelled() { break; }
             crate::logging::event(format_args!("herd-gamepad: {} in {:?}", describe(&input), core.mode()));
-            apply_actions(&herdr, core.handle(input, &snap), |action| {
+            let actions=match menu.handle(&mut core,input,&snap,&herdr) {
+                Ok(actions)=>actions,
+                Err(e)=>{feedback.emit(&herdr,&toast("Close menu unavailable",&e,Sound::Request));continue;}
+            };
+            let mut recording_error=None;
+            apply_actions(&herdr, actions, &mut feedback, |action| {
                 match action {
                     Action::StartRecording => match Recorder::start(cfg.max_seconds) {
                         Ok(r) => recorder = Some(r),
                         Err(e) => {
                             crate::logging::event(format_args!("herd-gamepad: record: {e}"));
-                            let _ = herdr.apply(&toast("Recording failed", &e, Sound::Request));
+                            recording_error=Some(e);
                         }
                     },
                     Action::StopRecording => match recorder.take() {
@@ -67,8 +76,10 @@ pub fn serve() -> Result<(), String> {
                     _ => unreachable!("only recording actions are delegated"),
                 }
             });
+            if let Some(e)=recording_error {feedback.emit(&herdr,&toast("Recording failed",&e,Sound::Request));}
         }
     }
+    drop(menu);
     drop(recorder);
     drop(worker); // Join/cancel transcription before acknowledging Stop by releasing daemon's lock.
     crate::logging::event(format_args!("herd-gamepad: stopped"));
@@ -96,13 +107,14 @@ pub fn next_inputs(mut poll: impl FnMut() -> Option<Option<Input>>, rx: &mpsc::R
 }
 
 /// Apply one input's actions, delegating hardware recording to the daemon.
-pub fn apply_actions(herdr: &Herdr<impl Runner>, actions: Vec<Action>, mut record: impl FnMut(Action)) {
+pub fn apply_actions(herdr: &Herdr<impl Runner>, actions: Vec<Action>, feedback: &mut Feedback, mut record: impl FnMut(Action)) {
     for action in actions {
         match action {
             Action::StartRecording | Action::StopRecording | Action::CancelRecording => record(action),
+            Action::Toast {..} => feedback.emit(herdr,&action),
             other => if let Err(e) = herdr.apply(&other) {
                 crate::logging::event(format_args!("herd-gamepad: {other:?}: {e}"));
-                let _ = herdr.apply(&toast("Herdr refused", &e, Sound::Request));
+                feedback.emit(herdr,&toast("Herdr refused", &e, Sound::Request));
                 // The remaining transcript action announces successful delivery.
                 if matches!(other, Action::Prompt { .. }) { break; }
             },
@@ -265,7 +277,9 @@ Closing stops running processes in the pane or space. Focus changes cancel.
 Finish dictation before opening close actions.
 
 A D-pad press on a blocked agent auto-switches to Respond.
-Each confirmation needs acknowledgement first; follow the on-screen prompt.
+Each blocked-agent confirmation needs acknowledgement first; press bottom again.
+Routine status updates are in Gamepad logs. Errors are shown at most once per 5 seconds.
+Close actions use a live popup; wait for the selected target to appear before confirming.
 Button positions define the actions, even when your controller uses other labels.
 ";
 

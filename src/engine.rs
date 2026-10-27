@@ -102,6 +102,7 @@ pub struct Core {
 }
 
 impl Core {
+    pub fn close_view(&self) -> Option<String> { None }
     pub fn new(voice_button: Btn) -> Self {
         Core { close_menu: None, mode: Mode::Navigate, voice_button, respond_pane: None, acknowledged_block: false, recording: false, transcribing: false, voice_target: None }
     }
