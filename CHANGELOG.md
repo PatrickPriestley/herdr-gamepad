@@ -9,6 +9,7 @@
 - Add on-demand recent logs in an overlay, with bounded log rotation.
 - Keep the mapping overlay on demand; starting no longer opens a daemon tab.
 - Upgrade from v0.1.0 by closing its old Gamepad pane once before starting.
+- Publish stable version tags automatically after both macOS CI jobs pass, with version and tag validation.
 
 
 ## 0.1.0
