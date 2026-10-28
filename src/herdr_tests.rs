@@ -293,3 +293,15 @@ fn cancellation_before_spawn_is_reported_without_starting_a_command() {
     let result = run_with_cancellation(&["/nonexistent/never-spawn"], Duration::from_secs(10), || true);
     assert_eq!(result, Err("command cancelled".into()));
 }
+
+#[test]
+fn interact_routes_non_agent_keys_through_pane_interface() {
+    let mut c=Core::new(Btn::RStick);
+    let s=Snapshot { focused: Some(Pane{pane_id:"w5:p2".into(),..Pane::default()}),..Snapshot::default() };
+    c.handle(Input::Press(Btn::A),&s);
+    for (b,key) in [(Btn::Up,"up"),(Btn::Down,"down"),(Btn::Left,"left"),(Btn::Right,"right"),(Btn::A,"enter"),(Btn::B,"esc"),(Btn::X,"space")] {
+        let actions=c.handle(Input::Press(b),&s);
+        assert_eq!(actions.len(),1);
+        assert_eq!(argv_for(&actions[0]),vec!["herdr","pane","send-keys","w5:p2",key]);
+    }
+}

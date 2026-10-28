@@ -190,10 +190,17 @@ fn a_tick_keeps_button_order_after_ready_voice_results() {
 fn mapping_button_descriptions_align_with_navigation_rows() {
     let labels = ["Triangle (Xbox: Y)", "Square (Xbox: X)", "Cross (Xbox: A)", "Circle (Xbox: B)", "Create / Share (View)"];
     let rows: Vec<_> = MAPPING.lines().filter(|line| labels.iter().any(|label| line.starts_with(label))).collect();
-    assert_eq!(rows.len(), 10);
+    assert_eq!(rows.len(), 14);
     let expected = MAPPING.lines().find(|line| line.starts_with("D-pad ")).unwrap().find("Focus").unwrap();
     for row in rows {
         let after_label = &row[row.find(')').unwrap() + 1..];
         assert_eq!(row.len() - after_label.trim_start().len(), expected, "misaligned mapping row: {row}");
+    }
+}
+
+#[test]
+fn mapping_explains_non_agent_interact_keys_and_escape() {
+    for text in ["INTERACT (NON-AGENT PANES)", "Enter Respond / Interact", "Send arrow keys to the pane", "Space / select", "Return to Navigate"] {
+        assert!(MAPPING.contains(text), "mapping is missing {text}");
     }
 }

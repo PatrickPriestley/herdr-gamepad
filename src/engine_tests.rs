@@ -138,14 +138,6 @@ fn a_enters_respond_mode_without_sending_enter() {
     assert!(matches!(out.as_slice(), [Action::Toast { title, .. }] if title == "Respond mode"), "{out:?}");
 }
 
-#[test]
-fn a_in_navigate_toasts_when_the_pane_has_no_agent() {
-    let mut c = core();
-    let s = Snapshot { focused: Some(pane("w5:p2", None, None)), ..snap() };
-    let out = c.handle(Input::Press(Btn::A), &s);
-    assert_eq!(c.mode(), Mode::Navigate);
-    assert!(matches!(out.as_slice(), [Action::Toast { title, .. }] if title == "No agent here"), "{out:?}");
-}
 
 fn in_respond() -> Core {
     let mut c = core();
@@ -742,4 +734,70 @@ mod closing {
         let mut c = core(); open(&mut c, &s, Btn::Menu); selected(&mut c, &s, Btn::X);
         assert_eq!(c.handle(Input::Press(Btn::A), &s).iter().map(argv_for).collect::<Vec<_>>(), vec![vec!["herdr", "pane", "close", "w5:p1"]]);
     }
+}
+
+fn non_agent() -> Snapshot {
+    Snapshot { focused: Some(pane("w5:p2", None, None)), ..snap() }
+}
+fn in_interact() -> Core {
+    let mut c = core();
+    let out = c.handle(Input::Press(Btn::A), &non_agent());
+    assert_eq!(format!("{:?}", c.mode()), "Interact");
+    assert!(matches!(out.as_slice(), [Action::Toast { title, .. }] if title == "Interact mode"));
+    c
+}
+#[test]
+fn interact_enters_without_sending_and_maps_all_keys() {
+    let mut c = in_interact();
+    for (button, key) in [(Btn::Up,"Up"),(Btn::Down,"Down"),(Btn::Left,"Left"),(Btn::Right,"Right"),(Btn::A,"Enter"),(Btn::B,"Esc"),(Btn::X,"Space")] {
+        assert_eq!(format!("{:?}", c.handle(Input::Press(button), &non_agent())), format!("[SendPaneKeys {{ target: \"w5:p2\", keys: [{key}] }}]"));
+        assert_eq!(format!("{:?}", c.mode()), "Interact");
+    }
+    assert_eq!(c.handle(Input::Press(Btn::LStick), &non_agent()), vec![]);
+}
+#[test]
+fn interact_rejects_missing_or_empty_target() {
+    let _ = in_interact(); // Positive assertion fails before the feature exists.
+    for focused in [None, Some(Pane::default())] {
+        let mut c=core(); let s=Snapshot{focused,..non_agent()};
+        let out=c.handle(Input::Press(Btn::A), &s);
+        assert_eq!(c.mode(),Mode::Navigate);
+        assert!(matches!(out.as_slice(),[Action::Toast{title,..}] if title=="No pane here"));
+    }
+}
+#[test]
+fn interact_focus_or_agent_change_consumes_each_press() {
+    let mut missing=non_agent(); missing.focused=None;
+    let mut moved=non_agent(); moved.focused.as_mut().unwrap().pane_id="w5:p3".into();
+    let mut agent=non_agent(); agent.focused.as_mut().unwrap().agent=Some("codex".into());
+    for s in [missing,moved,agent] {
+        for b in [Btn::A,Btn::B,Btn::X,Btn::Y,Btn::Up,Btn::Down,Btn::Left,Btn::Right,Btn::Lb,Btn::Rb,Btn::Lt,Btn::Rt] {
+            let mut c=in_interact();
+            let out=c.handle(Input::Press(b), &s);
+            assert_eq!(c.mode(),Mode::Navigate);
+            assert!(matches!(out.as_slice(),[Action::Toast{title,..}] if title=="Navigate mode"));
+            assert_eq!(c.handle(Input::Press(Btn::X), &non_agent()), vec![Action::ToggleZoom("w5:p2".into())]);
+        }
+    }
+}
+#[test]
+fn interact_view_disconnect_and_global_navigation_exit() {
+    for b in [Btn::View,Btn::Lb,Btn::Rb,Btn::Lt,Btn::Rt,Btn::Y] {
+        let mut c=in_interact();
+        let expected=core().handle(Input::Press(b),&non_agent());
+        let out=c.handle(Input::Press(b),&non_agent());
+        assert_eq!(c.mode(),Mode::Navigate);
+        assert_eq!(&out[1..],expected.as_slice());
+    }
+    let mut c=in_interact(); c.handle(Input::Disconnected,&non_agent());
+    assert_eq!(c.mode(),Mode::Navigate);
+    assert_eq!(c.handle(Input::Press(Btn::Up),&non_agent()),vec![Action::FocusDirection{pane_id:"w5:p2".into(),dir:Dir::Up}]);
+}
+#[test]
+fn interact_close_menu_still_owns_its_buttons() {
+    let mut c=in_interact(); c.handle(Input::Press(Btn::Menu),&non_agent());
+    assert_eq!(c.mode(),Mode::Navigate);
+    assert!(c.close_view().is_some());
+    c.handle(Input::Press(Btn::X),&non_agent());
+    assert_eq!(c.handle(Input::Press(Btn::A),&non_agent()),vec![Action::ClosePane("w5:p2".into())]);
 }
