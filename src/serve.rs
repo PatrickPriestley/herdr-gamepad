@@ -255,29 +255,29 @@ NAVIGATE
 D-pad                  Focus a neighbouring pane
 Left / right shoulder  Previous / next space
 Left / right trigger   Previous / next tab
-Top face button        Next agent needing attention
-Left face button       Toggle pane zoom
-Bottom face button     Enter Respond mode
+Triangle (Xbox: Y)      Next agent needing attention
+Square (Xbox: X)        Toggle pane zoom
+Cross (Xbox: A)         Enter Respond mode
 
 RESPOND
 D-pad                  Move through the agent's options
-Bottom face button     Enter / confirm
-Right face button      Escape
-Back / Select          Return to Navigate
+Cross (Xbox: A)         Enter / confirm
+Circle (Xbox: B)        Escape
+Create / Share (View)   Return to Navigate
 Shoulders, triggers,
-  top or left face     Navigate as above and leave Respond
+  Triangle / Square    Navigate as above and leave Respond
 
 CLOSE ACTIONS
 Menu / Options opens close actions; if voice uses Menu, use left stick click.
-Left face button       Select close pane
-Top face button        Select close space
-Bottom face button     Confirm selected close
-Right face / Back      Cancel; pressing the menu button again also cancels
+Square (Xbox: X)        Select close pane
+Triangle (Xbox: Y)      Select close space
+Cross (Xbox: A)         Confirm selected close
+Circle (Xbox: B)        Cancel; Back or the menu button also cancels
 Closing stops running processes in the pane or space. Focus changes cancel.
 Finish dictation before opening close actions.
 
 A D-pad press on a blocked agent auto-switches to Respond.
-Each blocked-agent confirmation needs acknowledgement first; press bottom again.
+Each blocked-agent confirmation needs acknowledgement first; press Cross (Xbox: A) again.
 Routine status updates are in Gamepad logs. Errors are shown at most once per 5 seconds.
 Close actions use a live popup; wait for the selected target to appear before confirming.
 Button positions define the actions, even when your controller uses other labels.
