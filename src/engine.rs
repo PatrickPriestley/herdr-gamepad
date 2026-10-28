@@ -237,15 +237,6 @@ impl Core {
         };
         if let Some(actions) = nav { return self.leave_respond(actions); }
         let blocked = agent_pane.is_some_and(|p| p.status == Some(Status::Blocked));
-        if self.mode == Mode::Navigate && blocked && matches!(b, Btn::Up | Btn::Down | Btn::Left | Btn::Right) {
-            // The press was aimed at moving focus, not at the dialog: the arrow goes through but is no
-            // acknowledgement, so the next A is swallowed once. `respond` is bypassed because it would count it.
-            self.enter_respond(agent_pane, false);
-            return vec![
-                toast("Respond mode", "the agent is waiting for you", Sound::None),
-                Action::SendKeys { target: agent_pane.map(|p| p.pane_id.clone()).unwrap_or_default(), keys: vec![key_of(b)] },
-            ];
-        }
         match self.mode {
             Mode::Navigate => match b {
                 Btn::Up | Btn::Down | Btn::Left | Btn::Right => focused
@@ -256,13 +247,13 @@ impl Core {
                         // Entering on a blocked agent is the acknowledgement; the next A confirms.
                         self.enter_respond(agent_pane, blocked);
                         if blocked { vec![toast("Respond mode", "agent waiting; press the bottom face button again to confirm", Sound::None)] }
-                        else { vec![toast("Respond mode", "D-pad moves; bottom confirms, right escapes; Back / Select leaves", Sound::None)] }
+                        else { vec![toast("Respond mode", "D-pad moves; Cross confirms; Circle returns to Navigate; Create / Share escapes", Sound::None)] }
                     }
                     None => match focused.filter(|p| !p.pane_id.is_empty()) {
                         Some(p) => {
                             self.mode = Mode::Interact;
                             self.interact_pane = Some(p.pane_id.clone());
-                            vec![toast("Interact mode", "D-pad moves; Cross enters, Square selects, Circle goes back; Create leaves", Sound::None)]
+                            vec![toast("Interact mode", "D-pad moves; Cross enters; Square selects; Circle returns to Navigate; Create / Share escapes", Sound::None)]
                         }
                         None => vec![toast("No pane here", "focus a pane first", Sound::None)],
                     },
@@ -271,7 +262,7 @@ impl Core {
             },
             Mode::Respond => self.respond(b, snap),
             Mode::Interact => {
-                if b == Btn::View {
+                if b == Btn::B {
                     self.enter_navigate();
                     return vec![toast("Navigate mode", "", Sound::None)];
                 }
@@ -314,7 +305,7 @@ impl Core {
             self.enter_navigate();
             return vec![toast("Navigate mode", "focus moved to another pane", Sound::None)];
         }
-        if b == Btn::View {
+        if b == Btn::B {
             self.enter_navigate();
             return vec![toast("Navigate mode", "", Sound::None)];
         }
@@ -341,14 +332,9 @@ impl Core {
 fn key_for(b: Btn) -> Option<Key> {
     Some(match b {
         Btn::Up => Key::Up, Btn::Down => Key::Down, Btn::Left => Key::Left, Btn::Right => Key::Right,
-        Btn::A => Key::Enter, Btn::B => Key::Esc,
+        Btn::A => Key::Enter, Btn::View => Key::Esc,
         _ => return None,
     })
-}
-
-/// The key a D-pad button sends.
-fn key_of(b: Btn) -> Key {
-    match b { Btn::Up => Key::Up, Btn::Down => Key::Down, Btn::Left => Key::Left, _ => Key::Right }
 }
 
 fn dir_of(b: Btn) -> Dir {

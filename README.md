@@ -63,26 +63,27 @@ The card also shows your configured voice button.
 | Physical control | Xbox | PlayStation | Action |
 |---|---|---|---|
 | Bottom face | A | Cross | Enter Respond / Interact; Enter when inside |
-| Right face | B | Circle | Escape in Respond / Interact |
+| Right face | B | Circle | Return to Navigate |
 | Left face | X | Square | Toggle zoom; Space in Interact |
 | Top face | Y | Triangle | Next agent needing attention |
 | Left / right shoulder | LB / RB | L1 / R1 | Previous / next space |
 | Left / right trigger | LT / RT | L2 / R2 | Previous / next tab |
-| Back / Select | View | Create (PS5) / Share (PS4) | Return to Navigate |
+| Back / Select | View | Create (PS5) / Share (PS4) | Escape in Respond / Interact |
 | Right stick click | Right stick click | R3 | Hold to dictate (default) |
 | Menu / Options | Menu | Options | Open close actions |
 
-D-pad moves between panes in Navigate, and between options in Respond. On a blocked
-agent, D-pad automatically enters Respond. Each confirmation requires acknowledgement
+D-pad moves between panes in Navigate, even when an agent is blocked. Press Cross
+(Xbox: A) to enter Respond and move between its options. Each confirmation requires acknowledgement
 first; press Cross (Xbox: A) again to confirm. Face-button positions always determine actions,
 even on controllers with different lettering.
 
 For a non-agent pane such as PR Tracker, press **Cross (Xbox: A)** to enter **Interact**.
 That first press only enters the mode. The D-pad sends arrow keys, **Cross (Xbox: A)**
-sends Enter, **Square (Xbox: X)** sends Space, and **Circle (Xbox: B)** sends Escape.
+sends Enter, **Square (Xbox: X)** sends Space, and **Create / Share (Xbox: View)** sends
+Escape to go back inside the app. **Circle (Xbox: B)** returns to pane navigation
+without sending a key. The same Circle/Share distinction applies in Respond.
 In PR Tracker, left/right chooses a category, Square opens its details, and up/down
-moves through items. **Create / Share (Xbox: View)** returns to pane navigation;
-shoulders, triggers, and Triangle also leave Interact and keep their usual navigation actions.
+moves through items. Shoulders, triggers, and Triangle also leave Interact and keep their usual navigation actions.
 A focus change or an agent appearing in the pane exits Interact and consumes the next press.
 This mode works in ordinary terminal panes, including shells; the app decides what each key does.
 Dictation still requires an agent pane.
