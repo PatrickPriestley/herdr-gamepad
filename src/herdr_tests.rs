@@ -276,7 +276,7 @@ fn daemon_snapshot_follows_ui_focus_instead_of_its_own_pane() {
     let mut core = Core::new(Btn::RStick);
     core.handle(Input::Press(Btn::A), &snap);
     assert_eq!(core.mode(), Mode::Respond);
-    core.handle(Input::Press(Btn::View), &snap);
+    core.handle(Input::Press(Btn::B), &snap);
     assert_eq!(core.mode(), Mode::Navigate);
 }
 
@@ -299,7 +299,7 @@ fn interact_routes_non_agent_keys_through_pane_interface() {
     let mut c=Core::new(Btn::RStick);
     let s=Snapshot { focused: Some(Pane{pane_id:"w5:p2".into(),..Pane::default()}),..Snapshot::default() };
     c.handle(Input::Press(Btn::A),&s);
-    for (b,key) in [(Btn::Up,"up"),(Btn::Down,"down"),(Btn::Left,"left"),(Btn::Right,"right"),(Btn::A,"enter"),(Btn::B,"esc"),(Btn::X,"space")] {
+    for (b,key) in [(Btn::Up,"up"),(Btn::Down,"down"),(Btn::Left,"left"),(Btn::Right,"right"),(Btn::A,"enter"),(Btn::View,"esc"),(Btn::X,"space")] {
         let actions=c.handle(Input::Press(b),&s);
         assert_eq!(actions.len(),1);
         assert_eq!(argv_for(&actions[0]),vec!["herdr","pane","send-keys","w5:p2",key]);

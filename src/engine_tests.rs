@@ -171,17 +171,17 @@ fn respond_mode_sends_keys_to_the_focused_agent() {
     assert_eq!(c.handle(Input::Press(Btn::Left), &snap()), keys("w5:p1", Key::Left));
     assert_eq!(c.handle(Input::Press(Btn::Right), &snap()), keys("w5:p1", Key::Right));
     assert_eq!(c.handle(Input::Press(Btn::A), &snap()), keys("w5:p1", Key::Enter));
-    assert_eq!(c.handle(Input::Press(Btn::B), &snap()), keys("w5:p1", Key::Esc));
+    assert_eq!(c.handle(Input::Press(Btn::View), &snap()), keys("w5:p1", Key::Esc));
     assert_eq!(c.mode(), Mode::Respond);
 }
 
 #[test]
-fn view_leaves_respond_mode() {
+fn circle_leaves_respond_mode() {
     let mut c = in_respond();
-    let out = c.handle(Input::Press(Btn::View), &snap());
+    let out = c.handle(Input::Press(Btn::B), &snap());
     assert_eq!(c.mode(), Mode::Navigate);
     assert!(matches!(out.as_slice(), [Action::Toast { title, .. }] if title == "Navigate mode"), "{out:?}");
-    assert_eq!(c.handle(Input::Press(Btn::View), &snap()), vec![], "View in Navigate does nothing");
+    assert_eq!(c.handle(Input::Press(Btn::B), &snap()), vec![], "Circle in Navigate does nothing");
 }
 
 #[test]
@@ -222,16 +222,11 @@ fn blocked() -> Snapshot {
 }
 
 #[test]
-fn dpad_on_a_blocked_agent_switches_to_respond_and_sends_the_key() {
+fn dpad_on_a_blocked_agent_stays_in_navigate_until_cross_enters() {
     let mut c = core();
-    let out = c.handle(Input::Press(Btn::Down), &blocked());
-    assert_eq!(c.mode(), Mode::Respond);
-    assert_eq!(out, vec![
-        toast("Respond mode", "the agent is waiting for you", Sound::None),
-        Action::SendKeys { target: "w5:p1".into(), keys: vec![Key::Down] },
-    ]);
-    // The press that switched modes was aimed at moving focus, not at the dialog: it is no acknowledgement.
-    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("The agent is waiting", "press the bottom face button again to confirm", Sound::None)]);
+    assert_eq!(c.handle(Input::Press(Btn::Down), &blocked()), vec![Action::FocusDirection { pane_id: "w5:p1".into(), dir: Dir::Down }]);
+    assert_eq!(c.mode(), Mode::Navigate);
+    assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("Respond mode", "agent waiting; press the bottom face button again to confirm", Sound::None)]);
     assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), keys("w5:p1", Key::Enter));
 }
 
@@ -432,9 +427,9 @@ fn a_on_a_dialog_that_appeared_after_entering_respond_is_swallowed_once() {
 }
 
 #[test]
-fn b_on_a_fresh_dialog_is_sent_and_counts_as_the_acknowledgement() {
+fn share_on_a_fresh_dialog_is_sent_and_counts_as_the_acknowledgement() {
     let mut c = in_respond();
-    assert_eq!(c.handle(Input::Press(Btn::B), &blocked()), keys("w5:p1", Key::Esc));
+    assert_eq!(c.handle(Input::Press(Btn::View), &blocked()), keys("w5:p1", Key::Esc));
     assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), keys("w5:p1", Key::Enter));
 }
 
@@ -493,12 +488,12 @@ fn disconnecting_while_recording_in_respond_cancels_and_leaves() {
 fn leaving_respond_forgets_the_acknowledgement() {
     let mut c = in_respond();
     c.handle(Input::Press(Btn::Down), &blocked());
-    c.handle(Input::Press(Btn::View), &blocked());
+    c.handle(Input::Press(Btn::B), &blocked());
     // Re-entering with A on the blocked pane: that A is the acknowledgement, the next confirms.
     c.handle(Input::Press(Btn::A), &blocked());
     assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), keys("w5:p1", Key::Enter));
     // Re-entering with A on an idle pane that then blocks: the first A is swallowed.
-    c.handle(Input::Press(Btn::View), &snap());
+    c.handle(Input::Press(Btn::B), &snap());
     c.handle(Input::Press(Btn::A), &snap());
     assert_eq!(c.handle(Input::Press(Btn::A), &blocked()), vec![toast("The agent is waiting", "press the bottom face button again to confirm", Sound::None)]);
 }
@@ -594,11 +589,11 @@ fn a_transcript_target_is_used_once() {
 }
 
 #[test]
-fn the_auto_switch_sends_every_direction() {
-    for (b, key) in [(Btn::Up, Key::Up), (Btn::Down, Key::Down), (Btn::Left, Key::Left), (Btn::Right, Key::Right)] {
+fn navigate_on_a_blocked_agent_moves_focus_in_every_direction() {
+    for (b, dir) in [(Btn::Up, Dir::Up), (Btn::Down, Dir::Down), (Btn::Left, Dir::Left), (Btn::Right, Dir::Right)] {
         let mut c = core();
-        let out = c.handle(Input::Press(b), &blocked());
-        assert_eq!(out[1], Action::SendKeys { target: "w5:p1".into(), keys: vec![key] }, "{b:?}");
+        assert_eq!(c.handle(Input::Press(b), &blocked()), vec![Action::FocusDirection { pane_id: "w5:p1".into(), dir }]);
+        assert_eq!(c.mode(),Mode::Navigate);
     }
 }
 
@@ -749,7 +744,7 @@ fn in_interact() -> Core {
 #[test]
 fn interact_enters_without_sending_and_maps_all_keys() {
     let mut c = in_interact();
-    for (button, key) in [(Btn::Up,"Up"),(Btn::Down,"Down"),(Btn::Left,"Left"),(Btn::Right,"Right"),(Btn::A,"Enter"),(Btn::B,"Esc"),(Btn::X,"Space")] {
+    for (button, key) in [(Btn::Up,"Up"),(Btn::Down,"Down"),(Btn::Left,"Left"),(Btn::Right,"Right"),(Btn::A,"Enter"),(Btn::View,"Esc"),(Btn::X,"Space")] {
         assert_eq!(format!("{:?}", c.handle(Input::Press(button), &non_agent())), format!("[SendPaneKeys {{ target: \"w5:p2\", keys: [{key}] }}]"));
         assert_eq!(format!("{:?}", c.mode()), "Interact");
     }
@@ -781,8 +776,8 @@ fn interact_focus_or_agent_change_consumes_each_press() {
     }
 }
 #[test]
-fn interact_view_disconnect_and_global_navigation_exit() {
-    for b in [Btn::View,Btn::Lb,Btn::Rb,Btn::Lt,Btn::Rt,Btn::Y] {
+fn interact_circle_disconnect_and_global_navigation_exit() {
+    for b in [Btn::B,Btn::Lb,Btn::Rb,Btn::Lt,Btn::Rt,Btn::Y] {
         let mut c=in_interact();
         let expected=core().handle(Input::Press(b),&non_agent());
         let out=c.handle(Input::Press(b),&non_agent());
@@ -800,4 +795,53 @@ fn interact_close_menu_still_owns_its_buttons() {
     assert!(c.close_view().is_some());
     c.handle(Input::Press(Btn::X),&non_agent());
     assert_eq!(c.handle(Input::Press(Btn::A),&non_agent()),vec![Action::ClosePane("w5:p2".into())]);
+}
+
+#[test]
+fn circle_exits_both_modes_without_sending_and_preserves_safe_reentry() {
+    for s in [snap(), blocked(), non_agent()] {
+        let mut c=core(); c.handle(Input::Press(Btn::A), &s);
+        assert_ne!(c.mode(),Mode::Navigate);
+        assert_eq!(c.handle(Input::Press(Btn::B),&s),vec![toast("Navigate mode","",Sound::None)]);
+        assert_eq!(c.mode(),Mode::Navigate);
+        assert_eq!(c.handle(Input::Press(Btn::B),&s),vec![]);
+        let entry=c.handle(Input::Press(Btn::A),&s);
+        assert!(matches!(entry.as_slice(),[Action::Toast{..}]));
+        assert_ne!(c.mode(),Mode::Navigate);
+    }
+}
+#[test]
+fn circle_focus_mismatch_never_sends_a_key() {
+    let mut positive=in_respond();
+    assert_eq!(positive.handle(Input::Press(Btn::B),&snap()),vec![toast("Navigate mode","",Sound::None)]);
+    for mut c in [in_respond(),in_interact()] {
+        let changed=Snapshot{focused:None,..snap()};
+        let out=c.handle(Input::Press(Btn::B),&changed);
+        assert_eq!(c.mode(),Mode::Navigate);
+        assert!(matches!(out.as_slice(),[Action::Toast{title,..}] if title=="Navigate mode"));
+    }
+}
+#[test]
+fn share_escape_keeps_the_mode_and_uses_its_own_route() {
+    let mut c=in_respond();
+    assert_eq!(c.handle(Input::Press(Btn::View),&blocked()),keys("w5:p1",Key::Esc));
+    assert_eq!(c.mode(),Mode::Respond);
+    assert_eq!(c.handle(Input::Press(Btn::A),&blocked()),keys("w5:p1",Key::Enter));
+    assert!(matches!(c.handle(Input::Press(Btn::A),&blocked()).as_slice(),[Action::Toast{..}]));
+    let mut c=in_interact();
+    assert_eq!(c.handle(Input::Press(Btn::View),&non_agent()),vec![Action::SendPaneKeys{target:"w5:p2".into(),keys:vec![Key::Esc]}]);
+    assert_eq!(c.mode(),Mode::Interact);
+    assert_eq!(core().handle(Input::Press(Btn::View),&snap()),vec![]);
+}
+
+#[test]
+fn navigate_dpad_does_not_get_trapped_by_a_blocked_agent() {
+    let mut c=core();
+    assert_eq!(c.handle(Input::Press(Btn::Down),&blocked()),vec![Action::FocusDirection{pane_id:"w5:p1".into(),dir:Dir::Down}]);
+    assert_eq!(c.mode(),Mode::Navigate);
+    c.handle(Input::Press(Btn::A),&blocked());
+    assert_eq!(c.mode(),Mode::Respond);
+    c.handle(Input::Press(Btn::B),&blocked());
+    assert_eq!(c.handle(Input::Press(Btn::Down),&blocked()),vec![Action::FocusDirection{pane_id:"w5:p1".into(),dir:Dir::Down}]);
+    assert_eq!(c.mode(),Mode::Navigate);
 }
