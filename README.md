@@ -1,136 +1,146 @@
-# herdr.gamepad
+# herd.gamepad
 
-A Herdr plugin that lets a game controller drive Herdr: navigate panes, tabs and spaces,
-answer agent prompts, and dictate through whisper.cpp on your machine.
+Drive [Herdr](https://herdr.dev) from a game controller. Move between panes, tabs and
+spaces, answer an agent's prompts, drive ordinary panes such as the PR tracker, close what
+you are done with, and dictate a prompt by holding a button. Speech is transcribed on your
+Mac with whisper.cpp; nothing leaves it.
 
-Controls follow physical button positions. The mapping card shows Xbox and PlayStation
-names side by side. The close popup names PlayStation buttons with explicit Xbox equivalents;
-diagnostic logs retain physical names such as "bottom face button".
-Controller compatibility still depends on macOS and the input backend. A DualSense has
-been exercised locally; other controller models need their own hardware checks.
+![herd-gamepad controls on a PS5 DualSense](docs/controller-dualsense.svg)
+
+Actions follow button positions, not labels. An Xbox controller's A, B, X and Y sit where
+Cross, Circle, Square and Triangle do and behave the same. The close popup names
+PlayStation buttons with their Xbox equivalents; logs use physical names such as "bottom
+face button". A DualSense has been exercised by hand; other models should work through the
+same macOS input path but have not been checked on hardware.
 
 ## Install
 
-Requirements:
-
-- macOS and Herdr 0.9.1 or later.
-- Git, a current stable Rust toolchain (`cargo`), and Xcode Command Line Tools.
-- `whisper-cli` from Homebrew's `whisper-cpp` package.
-- A controller paired with macOS and microphone permission for the terminal app.
-
-This release builds from source; it does not include prebuilt binaries. Herdr runs the
-build script during installation, using the committed Cargo.lock.
+You need macOS with Herdr 0.9.1 or later, Git, a current stable Rust toolchain (`cargo`)
+with the Xcode Command Line Tools, `whisper-cli` from Homebrew's `whisper-cpp` package, a
+controller paired with macOS, and microphone permission for your terminal app.
 
 ```sh
 brew install whisper-cpp
 herdr plugin install PatrickPriestley/herdr-gamepad --ref v0.2.0
 ```
 
-If you previously used `./install.sh`, stop its Gamepad daemon with Ctrl-C in the
-Gamepad tab, then run `herdr plugin unlink herd.gamepad` before installing from GitHub.
-Settings and the downloaded voice model stay in Herdr's per-plugin config/state folders.
+This release builds from source: Herdr runs the plugin's build script during installation,
+using the committed `Cargo.lock`. Then:
 
-Pair your controller in System Settings > Bluetooth. For Xbox, hold its pairing button;
-for PS5 DualSense, hold Create + PS until the light bar flashes. Then, in Herdr's command
-palette: "Gamepad: set up voice" (downloads the 148 MB base.en model once), then
-"Gamepad: start".
+1. Pair the controller in System Settings > Bluetooth. On a DualSense, hold Create and the
+   PS button until the light bar flashes. On an Xbox controller, hold its pairing button.
+2. In Herdr's command palette, run "Gamepad: set up voice". It downloads the 148 MB
+   `base.en` speech model once.
+3. Run "Gamepad: start".
 
 The first time you hold the voice button, macOS asks whether the terminal app may use the
-microphone; if that is denied, every hold ends with a "Recording failed" toast (allow it in
-System Settings > Privacy & Security > Microphone).
+microphone. If you decline, every hold ends with a "Recording failed" notification; allow
+it under System Settings > Privacy & Security > Microphone.
 
-## Background operation
+If you installed an earlier copy with `./install.sh`, stop its daemon and run
+`herdr plugin unlink herd.gamepad` before installing from GitHub. Upgrading from v0.1.0,
+which ran in a pane, close that pane once before starting. Settings and the downloaded
+model live in Herdr's per-plugin folders and survive reinstalls.
 
-"Gamepad: start" listens in the background without opening a pane. "Gamepad: stop"
-ends listening and cancels active recording or transcription. Repeated Start/Stop is safe.
-Herdr owns the background action; start it again after restarting Herdr.
+## Using it
 
-"Gamepad: show logs" opens an overlay containing a snapshot of recent diagnostics;
-reopen it to refresh. Logs rotate at 1 MiB and retain one previous file in the plugin
-state directory (`daemon.log` and `daemon.log.1`). Logs can include transcript previews.
-"Gamepad: show the mapping" opens the mapping overlay only when requested. Closing
-either overlay leaves the background daemon running.
+The controller is always in one of three modes. **Navigate** is the default and moves you
+around Herdr. **Respond** sends your presses to the agent in the focused pane. **Interact**
+sends them to any other pane, such as a shell or the PR tracker.
 
-When upgrading from v0.1.0, close its old Gamepad daemon pane once before starting the
-new background version. Settings and downloaded models are preserved.
+**Navigate.** The D-pad focuses the neighbouring pane; it always does, even when an agent
+is waiting. L1 and R1 step through spaces, L2 and R2 through tabs. Triangle jumps to the
+next agent that is waiting for you, or the next one that has finished. Square zooms the
+focused pane. Cross enters Respond on an agent pane and Interact on any other pane.
+
+**Respond.** The D-pad moves through the agent's options, Cross sends Enter, Create sends
+Escape, and Circle returns to Navigate without sending anything. If the agent is already
+waiting at a question when you press Cross from Navigate, that single press enters Respond
+and answers it. Respond is tied to the pane you entered it on: if focus moves elsewhere,
+the next press returns to Navigate and sends nothing.
+
+**Interact.** The first Cross only enters the mode. Then the D-pad sends arrow keys, Cross
+sends Enter, Square sends Space, Create sends Escape, and Circle returns to Navigate. The
+app decides what each key means: in the PR tracker, left and right choose a category, up
+and down move through items, Square opens details. If focus moves or an agent appears in
+the pane, the next press returns to Navigate and sends nothing. Dictation still needs an
+agent pane.
+
+In both Respond and Interact, the shoulders, triggers and Triangle keep their Navigate
+actions and return to Navigate. Square also does, except in Interact where it is Space.
+
+**Dictate.** Hold the right stick click, speak, release. The text goes to the pane that was
+focused when you released: an idle, done or working agent receives it as a submitted
+prompt. It is dropped, with a notification saying why, if focus moved since you spoke, the
+pane has no agent, or the agent is waiting at a dialog. Recording stops if the controller
+disconnects, and the audio is discarded.
+
+**Close a pane or space.** Press Options to open the close menu, a small popup. Square
+selects "close pane", Triangle selects "close space". Wait until the popup names the
+target, then press Cross to confirm. Circle, Create or Options again cancels. Closing stops
+whatever runs there; closing a space closes all its tabs and panes, but not its worktree
+group. A focus change, a disconnect or dismissing the popup cancels the pending close.
+Finish dictating before opening the menu. If your voice button is Options, the left stick
+click opens the menu instead.
+
+**Feedback.** Mode changes and successful sends are written to the Gamepad logs rather
+than shown as notifications. Errors are shown as notifications at most once every five
+seconds and are always logged. "Gamepad: show logs" opens a snapshot of recent lines;
+reopen it to refresh. Logs rotate at 1 MiB with one previous file kept, and can contain
+transcript previews.
+
+**Start and stop.** "Gamepad: start" listens in the background; nothing opens on screen.
+"Gamepad: stop" ends listening and cancels any recording or transcription in flight.
+Herdr owns the background task, so start it again after restarting Herdr. "Gamepad: show
+the mapping" opens the reference card, which also shows your configured voice button.
+
+To see what a controller sends, run `herd-gamepad probe` from a terminal; Ctrl-C stops it.
 
 ## Buttons
 
-Open "Gamepad: show the mapping" in the palette, or run `herd-gamepad mapping`.
-The card also shows your configured voice button.
+| Position | Xbox | PlayStation | Navigate | Respond | Interact | Close menu |
+|---|---|---|---|---|---|---|
+| Bottom face | A | Cross | Enter Respond or Interact; answers a waiting agent | Enter | Enter | Confirm |
+| Right face | B | Circle | | Back to Navigate | Back to Navigate | Cancel |
+| Left face | X | Square | Toggle zoom | Toggle zoom, back to Navigate | Space | Select "close pane" |
+| Top face | Y | Triangle | Next agent needing you | Same, back to Navigate | Same, back to Navigate | Select "close space" |
+| D-pad | | | Focus neighbouring pane | Arrow keys | Arrow keys | |
+| Shoulders | LB / RB | L1 / R1 | Previous / next space | Same, back to Navigate | Same, back to Navigate | |
+| Triggers | LT / RT | L2 / R2 | Previous / next tab | Same, back to Navigate | Same, back to Navigate | |
+| Back / Select | View | Create | | Escape | Escape | Cancel |
+| Menu | Menu | Options | Open close menu | Open close menu | Open close menu | Cancel |
+| Right stick click | | R3 | Hold to dictate | Hold to dictate | Hold to dictate | |
+| Left stick click | | L3 | Opens the close menu when voice is on Options | | | |
 
-| Physical control | Xbox | PlayStation | Action |
-|---|---|---|---|
-| Bottom face | A | Cross | Enter Respond / Interact; answer a waiting agent |
-| Right face | B | Circle | Return to Navigate |
-| Left face | X | Square | Toggle zoom; Space in Interact |
-| Top face | Y | Triangle | Next agent needing attention |
-| Left / right shoulder | LB / RB | L1 / R1 | Previous / next space |
-| Left / right trigger | LT / RT | L2 / R2 | Previous / next tab |
-| Back / Select | View | Create (PS5) / Share (PS4) | Escape in Respond / Interact |
-| Right stick click | Right stick click | R3 | Hold to dictate (default) |
-| Menu / Options | Menu | Options | Open close actions |
-
-D-pad moves between panes in Navigate, even when an agent is blocked. Press Cross
-(Xbox: A) to enter Respond and move between its options. If the agent is waiting at
-a question, that first Cross press also sends Enter. In Respond, every Cross press
-sends Enter immediately; no extra confirmation press is required. Face-button positions always determine actions,
-even on controllers with different lettering.
-
-For a non-agent pane such as PR Tracker, press **Cross (Xbox: A)** to enter **Interact**.
-That first press only enters the mode. The D-pad sends arrow keys, **Cross (Xbox: A)**
-sends Enter, **Square (Xbox: X)** sends Space, and **Create / Share (Xbox: View)** sends
-Escape to go back inside the app. **Circle (Xbox: B)** returns to pane navigation
-without sending a key. The same Circle/Share distinction applies in Respond.
-In PR Tracker, left/right chooses a category, Square opens its details, and up/down
-moves through items. Shoulders, triggers, and Triangle also leave Interact and keep their usual navigation actions.
-A focus change or an agent appearing in the pane exits Interact and consumes the next press.
-This mode works in ordinary terminal panes, including shells; the app decides what each key does.
-Dictation still requires an agent pane.
-
-Release the voice button to transcribe and automatically submit to an idle, done, or
-working agent—no extra Enter or controller press is needed. If focus changed, the pane
-has no agent, or the agent is blocked at a dialog or in an unknown state, the transcript
-is not sent.
-
-To close a pane or space, press **Menu / Options** to open the live close-actions popup. Press the
-**Square (Xbox: X)** to select Close pane, or **Triangle (Xbox: Y)** to select Close space.
-Wait for the selected target to appear in the popup, then press **Cross (Xbox: A)** to confirm.
-**Circle (Xbox: B)**,
-**Back / Select**, or the menu button cancels. Closing stops running processes in that
-pane or space; closing a space includes all its panes and tabs, not its workspace group.
-Closing the popup, a focus change, or a controller disconnect cancels the pending action. Finish dictation
-before opening close actions. If `[voice] button = "menu"`, use **left stick click
-(L3)** to open/cancel close actions instead.
-
-Routine mode and successful-send feedback goes to Gamepad logs rather than notification popups.
-Errors notify at most once every five seconds; every error is still logged. Herdr may delay an
-error behind notifications from other plugins; close confirmation uses its own current display.
-
-To inspect a controller's events, run `herd-gamepad probe`; Ctrl-C stops it.
+Unused: touchpad, PS button, mic button, analog stick movement.
 
 ## Settings
 
 `$(herdr plugin config-dir herd.gamepad)/config.toml`:
 
-    [whisper]
-    model = ""          # empty: <state>/models/ggml-base.en.bin
-    language = "en"
-    [voice]
-    button = "rstick"   # rstick, lstick or menu
-    max_seconds = 60
+```toml
+[whisper]
+model = ""          # empty: <state dir>/models/ggml-base.en.bin
+language = "en"
 
-## Design
+[voice]
+button = "rstick"   # rstick, lstick or menu
+max_seconds = 60    # recordings are cut here; 1 to 3600
+```
 
-`docs/plans/2026-10-27-gamepad-design.md`.
+A value of the wrong type is an error, not a silent default.
 
-## Updates and removal
+## Updating and removing
 
-To install a newer release, use "Gamepad: stop" (v0.1.0: Ctrl-C in its Gamepad tab), then rerun
-`herdr plugin install PatrickPriestley/herdr-gamepad --ref <release-tag>` and invoke
-"Gamepad: start". A running daemon keeps its old executable until restarted.
+Run "Gamepad: stop", then install the new release tag:
 
-To remove the plugin, stop its daemon, then run `herdr plugin uninstall herd.gamepad`.
+```sh
+herdr plugin install PatrickPriestley/herdr-gamepad --ref <release-tag>
+```
+
+and run "Gamepad: start". A running daemon keeps its old executable until restarted.
+
+To remove the plugin, stop its daemon and run `herdr plugin uninstall herd.gamepad`.
 
 ## Development
 
@@ -138,41 +148,41 @@ To remove the plugin, stop its daemon, then run `herdr plugin uninstall herd.gam
 git clone https://github.com/PatrickPriestley/herdr-gamepad.git
 cd herdr-gamepad
 cargo test --locked
+sh tests/build.sh
 ./install.sh
 ```
 
-The development installer builds and links a local copy. CI tests and builds on Apple
-Silicon and Intel macOS; controller and microphone behaviour still needs hardware testing.
+`install.sh` builds and links the local copy into Herdr. CI tests and builds on Apple
+silicon and Intel macOS runners and checks the installed layout; controller and microphone
+behaviour still need a hand on real hardware.
+
+Design notes and implementation plans live under `docs/plans/`. Start with
+`docs/plans/2026-10-27-gamepad-design.md`.
 
 ## Publishing a release
 
-Releases publish automatically after a stable version tag passes both macOS CI jobs.
-Distribution remains source-built; the release contains GitHub's source archives and
-generated release notes, not prebuilt binaries.
-
-First, open and merge a version-bump PR that updates all three versions to the same
-value: `Cargo.toml`, the `herd-gamepad` package entry in `Cargo.lock`, and
-`herdr-plugin.toml`. Update `CHANGELOG.md` with that release's changes too. Then tag the
-merged commit from an up-to-date `main`, using the matching version (for example):
+A release is a stable `vMAJOR.MINOR.PATCH` tag on `main`. Before tagging, merge a PR that
+sets the same version in `Cargo.toml`, the `herd-gamepad` entry in `Cargo.lock` and
+`herdr-plugin.toml`, and updates `CHANGELOG.md`. Then:
 
 ```sh
 git switch main
 git pull --ff-only
-git tag -a v0.1.1 -m "Release v0.1.1"
-git push origin v0.1.1
+git tag -a v0.2.1 -m "Release v0.2.1"
+git push origin v0.2.1
 ```
 
-The tag must use stable `vMAJOR.MINOR.PATCH` format; prerelease tags are not supported.
-CI checks that the tag matches all three version files, the commit is on `main`, and
-the remote tag still points to the tested commit. After both macOS jobs pass, it
-publishes the release automatically. No manual `gh release create` command is needed.
+CI checks that the tag matches all three version files, that the commit is on `main` and
+that the remote tag still points at the tested commit. After both macOS jobs pass, it
+creates the release with generated notes. Releases are source archives; there are no
+prebuilt binaries yet. Prerelease tags are not supported.
 
-For a transient CI or GitHub API failure, rerun the failed tag workflow in GitHub Actions.
-Rerunning an already published release leaves it unchanged. An existing draft must be
-reviewed and handled manually. For version or content errors, fix them through a PR and
-use a new correct version tag; do not move a published tag.
+If CI or the GitHub API fails transiently, rerun the tag's workflow; rerunning an already
+published release leaves it unchanged. An existing draft release is left for you to review.
+For a version or content mistake, fix it in a PR and cut a new tag; never move a published
+tag.
 
 ## License
 
-MIT; see [LICENSE](LICENSE). Herdr, whisper.cpp, and the downloaded model have their own
+MIT; see [LICENSE](LICENSE). Herdr, whisper.cpp and the downloaded model have their own
 licenses and distribution terms.
