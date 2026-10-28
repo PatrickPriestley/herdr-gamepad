@@ -23,7 +23,7 @@ build script during installation, using the committed Cargo.lock.
 
 ```sh
 brew install whisper-cpp
-herdr plugin install PatrickPriestley/herdr-gamepad --ref v0.1.0
+herdr plugin install PatrickPriestley/herdr-gamepad --ref v0.2.0
 ```
 
 If you previously used `./install.sh`, stop its Gamepad daemon with Ctrl-C in the
@@ -39,7 +39,7 @@ The first time you hold the voice button, macOS asks whether the terminal app ma
 microphone; if that is denied, every hold ends with a "Recording failed" toast (allow it in
 System Settings > Privacy & Security > Microphone).
 
-## Background operation (next release)
+## Background operation
 
 "Gamepad: start" listens in the background without opening a pane. "Gamepad: stop"
 ends listening and cancels active recording or transcription. Repeated Start/Stop is safe.
@@ -51,7 +51,6 @@ state directory (`daemon.log` and `daemon.log.1`). Logs can include transcript p
 "Gamepad: show the mapping" opens the mapping overlay only when requested. Closing
 either overlay leaves the background daemon running.
 
-These controls are on the development branch and are not in the v0.1.0 release above.
 When upgrading from v0.1.0, close its old Gamepad daemon pane once before starting the
 new background version. Settings and downloaded models are preserved.
 

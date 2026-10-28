@@ -1,6 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
+
+- Interact with non-agent panes such as PR Tracker using arrows, Enter, Space, and Escape.
+- Use Cross to enter a pane, Circle to return to navigation, and Share/Create for Escape.
+- Keep D-pad pane navigation available even when an agent is waiting for input.
+- Show familiar PlayStation button names with explicit Xbox equivalents in close controls.
+- Keep close-menu feedback current and bound error notifications to avoid stale popup queues.
 
 - Deliver completed dictation without waiting for another controller button press.
 
