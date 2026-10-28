@@ -32,6 +32,10 @@ fixture() {
   printf '#!/bin/sh\nprintf "new binary\\n"\n' > "$f/target/release/herd-gamepad"
   printf '#!/bin/sh\nprintf "old binary\\n"\n' > "$f/bin/herd-gamepad"
   chmod +x "$f/tools/cargo" "$f/target/release/herd-gamepad" "$f/bin/herd-gamepad"
+  printf '/bin/\n/target/\n/tools/\n/release/\n/payload/\n/tmp/\n/.cargo/\n/log\n/*-ran\n/curl-args\n/minimal/\n' > "$f/.gitignore"
+  git -C "$f" init -q
+  git -C "$f" add .gitignore scripts/build.sh Cargo.toml herdr-plugin.toml
+  git -C "$f" -c core.hooksPath=/dev/null -c commit.gpgsign=false -c user.name=Test -c user.email=test@example.invalid commit -qm fixture
   printf '%s' "$f"
 }
 
@@ -42,10 +46,11 @@ release() {
   mkdir -p "$1/payload"
   printf '#!/bin/sh\nprintf "prebuilt binary\\n"\n' > "$1/payload/herd-gamepad"
   chmod +x "$1/payload/herd-gamepad"
+  git -C "$1" rev-parse HEAD > "$1/payload/herd-gamepad.commit"
   case "${2:-}" in
     nomember) : > "$1/payload/other"; tar -czf "$1/release/$asset" -C "$1/payload" other ;;
     notgzip)  printf 'not a tarball\n' > "$1/release/$asset" ;;
-    *)        tar -czf "$1/release/$asset" -C "$1/payload" herd-gamepad ;;
+    *)        tar -czf "$1/release/$asset" -C "$1/payload" herd-gamepad herd-gamepad.commit ;;
   esac
   if [ "${2:-}" = corrupt ]; then
     printf '%s  %s\n' "$(printf 'x%.0s' $(seq 64) | tr x 0)" "$asset" > "$1/release/$asset.sha256"
@@ -64,7 +69,8 @@ forbid() {
 # The script's download directories are created under TMPDIR=$1/tmp; every run must leave it
 # empty, whichever way the run ended.
 assert_clean_tmp() {
-  [ -z "$(ls -A "$1/tmp")" ] || fail "$(basename "$1"): download directory left in TMPDIR: $(ls -A "$1/tmp")"
+  # Apple's /usr/bin/git launcher may create xcrun_db in TMPDIR; that cache is not ours.
+  [ -z "$(ls -A "$1/tmp" | grep -v '^xcrun_db$')" ] || fail "$(basename "$1"): download directory left in TMPDIR: $(ls -A "$1/tmp")"
 }
 
 # Run the script in fixture $1 with PATH=$2 and extra env $3; stdout/stderr to $1/log. HOME is
@@ -72,10 +78,17 @@ assert_clean_tmp() {
 # Returns the script's status after checking that TMPDIR was left clean.
 run() {
   if [ "${4:-}" = nohome ]; then home=; else home="HOME=$1"; fi
-  (cd "$1" && env -i $home TMPDIR="$1/tmp" PATH="$2" HERD_GAMEPAD_RELEASE_URL="file://$1/release" $3 sh scripts/build.sh) > "$1/log" 2>&1
+  (cd "$1" && env -i $home TMPDIR="$1/tmp" PATH="$2" HERD_GAMEPAD_RELEASE_URL="file://$1/release" $3 sh "${5:-scripts/build.sh}") > "$1/log" 2>&1
   rc=$?
   assert_clean_tmp "$1"
   return $rc
+}
+# Only commands the installer needs; checksum tools are deliberately absent.
+minimal_path() {
+  mkdir -p "$1/minimal"
+  for path_tool in sh dirname mkdir mktemp uname git sed curl cut tar cp rm chmod mv cat; do
+    ln -s "$(command -v "$path_tool")" "$1/minimal/$path_tool"
+  done
 }
 base_path=/usr/bin:/bin:/usr/sbin:/sbin
 
@@ -166,12 +179,16 @@ run "$f" "$f/tools:$base_path" "" || fail "emptydigest: exit $?: $(cat "$f/log")
 [ "$("$f/bin/herd-gamepad")" = "new binary" ] || fail "emptydigest: the download was installed on an empty digest"
 grep -q "checksum mismatch" "$f/log" || fail "emptydigest: log does not mention the mismatch: $(cat "$f/log")"
 
-# 12. No checksum tool at all: an empty computed digest must not match an empty published one.
-f=$(fixture nodigest); release "$f"; : > "$f/release/$asset.sha256"
-printf '#!/bin/sh\nexit 1\n' > "$f/tools/shasum"; cp "$f/tools/shasum" "$f/tools/sha256sum"; chmod +x "$f/tools/shasum" "$f/tools/sha256sum"
-run "$f" "$f/tools:$base_path" "" || fail "nodigest: exit $?: $(cat "$f/log")"
+# 12. Neither checksum tool exists on PATH: the download cannot be verified.
+f=$(fixture nodigest); release "$f"
+minimal_path "$f"
+if env PATH="$f/minimal" /bin/sh -c 'command -v shasum || command -v sha256sum'; then fail "nodigest: checksum tools unexpectedly present"; fi
+run "$f" "$f/tools:$f/minimal" "" || fail "nodigest: exit $?: $(cat "$f/log")"
 [ "$("$f/bin/herd-gamepad")" = "new binary" ] || fail "nodigest: an unverifiable download was installed"
 grep -q "checksum mismatch" "$f/log" || fail "nodigest: log does not mention the mismatch: $(cat "$f/log")"
+# Also exercise the checksum helper's failure contract, rather than only its empty output.
+sed -n '/^sha256_of() {/,/^}/p' "$f/scripts/build.sh" > "$f/tools/checksum-function.sh"
+if env PATH="$f/minimal" /bin/sh -c '. "$1"; sha256_of "$2"' probe "$f/tools/checksum-function.sh" "$f/release/$asset"; then fail "nodigest: helper reported success without a checksum tool"; fi
 
 # 13. A failing cargo build exits non-zero, leaves the old binary alone, removes the staging
 # file, keeps cargo's error in the log, and does not blame a missing cargo. A stale
@@ -224,4 +241,148 @@ run "$f" "$f/tools:$base_path" "" || fail "installed: exit $?: $(cat "$f/log")"
 [ "$("$f/bin/herd-gamepad")" = "old binary" ] || fail "installed: an installed copy was rebuilt"
 [ ! -e "$f/curl-ran" ] || fail "installed: a download was attempted"
 
-[ "$failures" = 0 ] && echo "build script: 19 cases passed" || { echo "build script: $failures failing" >&2; exit 1; }
+# 19. The sha256sum fallback succeeds when shasum really is absent.
+f=$(fixture sha256sum); release "$f"; minimal_path "$f"
+printf '#!/bin/sh\n: > "%s/sha256sum-ran"\nexec "%s" -a 256 "$@"\n' "$f" "$(command -v shasum)" > "$f/minimal/sha256sum"; chmod +x "$f/minimal/sha256sum"
+run "$f" "$f/minimal" "" || fail "sha256sum: exit $?: $(cat "$f/log")"
+[ "$("$f/bin/herd-gamepad")" = "prebuilt binary" ] || fail "sha256sum: expected verified prebuilt binary"
+[ -f "$f/sha256sum-ran" ] || fail "sha256sum: fallback tool was not called"
+
+# 20. A newer checkout with the same manifest version must build its own sources.
+f=$(fixture newer); release "$f"
+printf 'newer source\n' > "$f/Cargo.toml"
+git -C "$f" add Cargo.toml
+git -C "$f" -c core.hooksPath=/dev/null -c commit.gpgsign=false -c user.name=Test -c user.email=test@example.invalid commit -qm newer
+run "$f" "$f/tools:$base_path" "" || fail "newer: exit $?: $(cat "$f/log")"
+[ "$("$f/bin/herd-gamepad")" = "new binary" ] || fail "newer: installed an older binary for a newer checkout"
+grep -q 'source commit mismatch' "$f/log" || fail "newer: missing provenance diagnostic"
+
+# 21. Without cargo that same mismatch must fail, preserving the installed binary.
+f=$(fixture newer-nocargo); release "$f"
+printf 'newer source\n' > "$f/Cargo.toml"; git -C "$f" add Cargo.toml
+git -C "$f" -c core.hooksPath=/dev/null -c commit.gpgsign=false -c user.name=Test -c user.email=test@example.invalid commit -qm newer
+if run "$f" "$base_path" ""; then fail "newer-nocargo: accepted an older binary"; fi
+[ "$("$f/bin/herd-gamepad")" = "old binary" ] || fail "newer-nocargo: changed the installed binary"
+
+# 22-23. Local tracked edits and untracked source files both require a source build.
+for kind in tracked untracked; do
+  f=$(fixture "$kind"); release "$f"
+  if [ "$kind" = tracked ]; then printf 'local edit\n' > "$f/Cargo.toml"
+  else printf 'new source\n' > "$f/new-source.rs"; fi
+  run "$f" "$f/tools:$base_path" "" || fail "$kind: exit $?: $(cat "$f/log")"
+  [ "$("$f/bin/herd-gamepad")" = "new binary" ] || fail "$kind: local sources were ignored"
+  grep -q 'checkout is not clean' "$f/log" || fail "$kind: missing dirty-source diagnostic"
+done
+
+# 24. Source archives without Git metadata cannot prove commit provenance.
+f=$(fixture no-git); release "$f"; rm -rf "$f/.git"
+run "$f" "$f/tools:$base_path" "" || fail "no-git: exit $?: $(cat "$f/log")"
+[ "$("$f/bin/herd-gamepad")" = "new binary" ] || fail "no-git: unverified prebuilt installed"
+
+# 25. A nested source directory may not borrow its parent's otherwise clean Git identity.
+parent="$work/nested-parent"; mkdir -p "$parent"; printf '*\n' > "$parent/.gitignore"
+git -C "$parent" init -q; git -C "$parent" add -f .gitignore
+git -C "$parent" -c core.hooksPath=/dev/null -c commit.gpgsign=false -c user.name=Test -c user.email=test@example.invalid commit -qm parent
+f=$(fixture nested-parent/child); rm -rf "$f/.git"; release "$f"
+run "$f" "$f/tools:$base_path" "" || fail "nested: exit $?: $(cat "$f/log")"
+[ "$("$f/bin/herd-gamepad")" = "new binary" ] || fail "nested: borrowed parent's provenance"
+
+# 26-27. A legacy or malformed provenance file is not sufficient, even with a valid checksum.
+for kind in missing-commit malformed-commit; do
+  f=$(fixture "$kind"); release "$f"
+  if [ "$kind" = missing-commit ]; then tar -czf "$f/release/$asset" -C "$f/payload" herd-gamepad
+  else printf 'not-a-commit\n' > "$f/payload/herd-gamepad.commit"; tar -czf "$f/release/$asset" -C "$f/payload" herd-gamepad herd-gamepad.commit; fi
+  (cd "$f/release" && shasum -a 256 "$asset" > "$asset.sha256")
+  run "$f" "$f/tools:$base_path" "" || fail "$kind: exit $?: $(cat "$f/log")"
+  [ "$("$f/bin/herd-gamepad")" = "new binary" ] || fail "$kind: unverified source identity installed"
+done
+
+# 28-29. Tool failures cannot be masked by a pipeline even if the output is a valid digest.
+for tool in shasum sha256sum; do
+  f=$(fixture "failed-$tool"); release "$f"; minimal_path "$f"
+  printf '#!/bin/sh\n/bin/cat "%s/release/%s.sha256"\nexit 7\n' "$f" "$asset" > "$f/tools/$tool"; chmod +x "$f/tools/$tool"
+  run "$f" "$f/tools:$f/minimal" "" || fail "$tool-failure: exit $?: $(cat "$f/log")"
+  [ "$("$f/bin/herd-gamepad")" = "new binary" ] || fail "$tool-failure: accepted output from a failed checksum command"
+  sed -n '/^sha256_of() {/,/^}/p' "$f/scripts/build.sh" > "$f/tools/checksum-function.sh"
+  if env PATH="$f/tools:$f/minimal" /bin/sh -c '. "$1"; sha256_of "$2"' probe "$f/tools/checksum-function.sh" "$f/release/$asset"; then fail "$tool-failure: helper masked checksum status"; fi
+done
+
+# 30-32. Every Git command's failure is checked, even if it printed plausible output.
+real_git=$(command -v git)
+for operation in root head status; do
+  f=$(fixture "failed-git-$operation"); release "$f"
+  cat > "$f/tools/git" <<GIT
+#!/bin/sh
+case "\$*" in
+  *'--show-toplevel') op=root ;;
+  *'--verify HEAD') op=head ;;
+  *'status --porcelain'*) op=status ;;
+  *) op=other ;;
+esac
+"$real_git" "\$@"
+rc=\$?
+[ "\$op" != "$operation" ] || exit 1
+exit \$rc
+GIT
+  chmod +x "$f/tools/git"
+  run "$f" "$f/tools:$base_path" "" || fail "git-$operation: exit $?: $(cat "$f/log")"
+  [ "$("$f/bin/herd-gamepad")" = "new binary" ] || fail "git-$operation: accepted failed provenance command"
+done
+
+# 33. A symlinked path to a clean checkout still qualifies for its own prebuilt binary.
+f=$(fixture symlink); release "$f"; ln -s "$f" "$work/symlink-path"
+run "$f" "$base_path" "" "" "$work/symlink-path/scripts/build.sh" || fail "symlink: exit $?: $(cat "$f/log")"
+[ "$("$f/bin/herd-gamepad")" = "prebuilt binary" ] || fail "symlink: canonical checkout was rejected"
+
+# 34. A failed provenance read is rejected even if it printed the expected commit.
+f=$(fixture failed-commit-read); release "$f"
+printf '#!/bin/sh\n/bin/cat "$@"\nexit 1\n' > "$f/tools/cat"; chmod +x "$f/tools/cat"
+run "$f" "$f/tools:$base_path" "" || fail "commit-read: exit $?: $(cat "$f/log")"
+[ "$("$f/bin/herd-gamepad")" = "new binary" ] || fail "commit-read: accepted a failed metadata read"
+
+# 35. A failed staging copy must fall back, not install partial bytes.
+f=$(fixture failed-copy); release "$f"
+cat > "$f/tools/cp" <<COPY
+#!/bin/sh
+case "\$1" in
+  "$f/tmp/"*/herd-gamepad) printf partial > "\$2"; exit 1 ;;
+esac
+exec /bin/cp "\$@"
+COPY
+chmod +x "$f/tools/cp"
+run "$f" "$f/tools:$base_path" "" || fail "copy: exit $?: $(cat "$f/log")"
+[ "$("$f/bin/herd-gamepad")" = "new binary" ] || fail "copy: installed a failed partial copy"
+
+# 36. A tar failure cannot be hidden by usable-looking partial extraction output.
+f=$(fixture failed-extract); release "$f"
+printf '#!/bin/sh\n"%s" "$@"\nexit 1\n' "$(command -v tar)" > "$f/tools/tar"; chmod +x "$f/tools/tar"
+run "$f" "$f/tools:$base_path" "" || fail "extract: exit $?: $(cat "$f/log")"
+[ "$("$f/bin/herd-gamepad")" = "new binary" ] || fail "extract: installed output from a failed extraction"
+
+# 37-38. A checkout changed during download must be checked again before installation.
+for change in commit dirty; do
+  f=$(fixture "download-$change"); release "$f"
+  cat > "$f/tools/curl" <<CURL
+#!/bin/sh
+if [ ! -e "$f/curl-ran" ]; then
+  : > "$f/curl-ran"
+  printf 'changed during download\\n' > "$f/Cargo.toml"
+  if [ "$change" = commit ]; then
+    "$real_git" -C "$f" add Cargo.toml
+    "$real_git" -C "$f" -c core.hooksPath=/dev/null -c commit.gpgsign=false -c user.name=Test -c user.email=test@example.invalid commit -qm changed
+  fi
+fi
+exec "$(command -v curl)" "\$@"
+CURL
+  chmod +x "$f/tools/curl"
+  run "$f" "$f/tools:$base_path" "" || fail "download-$change: exit $?: $(cat "$f/log")"
+  [ "$("$f/bin/herd-gamepad")" = "new binary" ] || fail "download-$change: installed prebuilt for changed checkout"
+done
+
+# 39. shasum alone is also sufficient; do not accidentally require sha256sum.
+f=$(fixture shasum-only); release "$f"; minimal_path "$f"
+ln -s "$(command -v shasum)" "$f/minimal/shasum"
+run "$f" "$f/minimal" "" || fail "shasum-only: exit $?: $(cat "$f/log")"
+[ "$("$f/bin/herd-gamepad")" = "prebuilt binary" ] || fail "shasum-only: expected verified prebuilt binary"
+
+[ "$failures" = 0 ] && echo "build script: 40 cases passed" || { echo "build script: $failures failing" >&2; exit 1; }
