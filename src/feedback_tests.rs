@@ -302,7 +302,7 @@ fn close_view_uses_the_configured_cancel_button() {
     assert!(core
         .close_view()
         .unwrap()
-        .contains("Right face / Back / left stick click: cancel"));
+        .contains("L3 / left stick click: Cancel"));
 }
 
 #[test]
@@ -376,4 +376,34 @@ fn lease_acquisition_preserves_non_contention_errors_without_retrying() {
     drop(lock);
     fs::remove_file(root.join("lock")).unwrap();
     fs::remove_dir(root).unwrap();
+}
+
+#[test]
+fn close_popup_names_playstation_buttons_with_explicit_xbox_equivalents() {
+    let snap = crate::engine_tests::snap();
+    for voice in [Btn::RStick, Btn::LStick, Btn::Menu] {
+        let mut core = Core::new(voice);
+        core.handle(Input::Press(menu_button(voice)), &snap);
+        let view = core.close_view().unwrap();
+        for label in ["Square (Xbox: X): Close pane", "Triangle (Xbox: Y): Close space",
+                      "Circle (Xbox: B): Cancel", "Create / Share (Xbox: View): Cancel"] {
+            assert!(view.contains(label), "missing {label}: {view}");
+        }
+        let cancel = if voice == Btn::Menu { "L3 / left stick click: Cancel" }
+                     else { "Options (Xbox: Menu): Cancel" };
+        assert!(view.contains(cancel));
+        for choice in [Btn::X, Btn::Y] {
+            core.handle(Input::Press(choice), &snap);
+            let selected = core.close_view().unwrap();
+            assert!(selected.contains("Cross (Xbox: A): Confirm"));
+            assert!(selected.contains("Circle (Xbox: B): Cancel"));
+            assert!(selected.contains(cancel));
+            assert!(!selected.contains("face"));
+            assert!(selected.lines().count() <= 10);
+            assert!(selected.lines().all(|line| line.chars().count() <= 62));
+        }
+        assert!(!view.contains("face"));
+        assert!(view.lines().count() <= 10);
+        assert!(view.lines().all(|line| line.chars().count() <= 62));
+    }
 }

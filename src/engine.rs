@@ -161,11 +161,13 @@ impl Core {
     pub fn close_view(&self) -> Option<String> {
         let menu=self.close_menu.as_ref()?;
         let heading=match menu.choice {
-            None=>format!("Close actions — pane {} / space {}\nLeft face: close pane; top face: close space",menu.pane_id,menu.workspace_id),
-            Some(CloseKind::Pane)=>format!("Close pane {}?\nBottom face: confirm",menu.pane_id),
-            Some(CloseKind::Space)=>format!("Close space {}?\nBottom face: confirm",menu.workspace_id),
+            None=>format!("Close actions — pane {} / space {}\nSquare (Xbox: X): Close pane\nTriangle (Xbox: Y): Close space",menu.pane_id,menu.workspace_id),
+            Some(CloseKind::Pane)=>format!("Close pane {}?\nCross (Xbox: A): Confirm",menu.pane_id),
+            Some(CloseKind::Space)=>format!("Close space {}?\nCross (Xbox: A): Confirm",menu.workspace_id),
         };
-        Some(format!("{heading}\nStops its running processes.\nRight face / Back / {}: cancel",menu_button(self.voice_button).label()))
+        let cancel_menu = if self.voice_button == Btn::Menu { "L3 / left stick click" }
+                          else { "Options (Xbox: Menu)" };
+        Some(format!("{heading}\nStops its running processes.\nCircle (Xbox: B): Cancel\nCreate / Share (Xbox: View): Cancel\n{cancel_menu}: Cancel"))
     }
 
 
@@ -198,7 +200,7 @@ impl Core {
                     menu.choice = Some(CloseKind::Space);
                     ("space", &menu.workspace_id)
                 };
-                vec![toast("Confirm close", &format!("Close {kind} {target}? Stops its running processes. Bottom face: confirm; right face: cancel"), Sound::Request)]
+                vec![toast("Confirm close", &format!("Close {kind} {target}? Stops its running processes. Cross (Xbox: A): Confirm; Circle (Xbox: B): Cancel"), Sound::Request)]
             }
             Btn::A => match menu.choice {
                 Some(CloseKind::Pane) => return vec![Action::ClosePane(menu.pane_id)],

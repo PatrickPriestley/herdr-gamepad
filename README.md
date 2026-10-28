@@ -4,7 +4,8 @@ A Herdr plugin that lets a game controller drive Herdr: navigate panes, tabs and
 answer agent prompts, and dictate through whisper.cpp on your machine.
 
 Controls follow physical button positions. The mapping card shows Xbox and PlayStation
-names side by side; prompts and logs use neutral names such as "bottom face button".
+names side by side. The close popup names PlayStation buttons with explicit Xbox equivalents;
+diagnostic logs retain physical names such as "bottom face button".
 Controller compatibility still depends on macOS and the input backend. A DualSense has
 been exercised locally; other controller models need their own hardware checks.
 
@@ -73,7 +74,7 @@ The card also shows your configured voice button.
 
 D-pad moves between panes in Navigate, and between options in Respond. On a blocked
 agent, D-pad automatically enters Respond. Each confirmation requires acknowledgement
-first; press the bottom face button again to confirm. Face-button positions always determine actions,
+first; press Cross (Xbox: A) again to confirm. Face-button positions always determine actions,
 even on controllers with different lettering.
 
 Release the voice button to transcribe and automatically submit to an idle, done, or
@@ -82,9 +83,9 @@ has no agent, or the agent is blocked at a dialog or in an unknown state, the tr
 is not sent.
 
 To close a pane or space, press **Menu / Options** to open the live close-actions popup. Press the
-**left face button (X / Square)** to select Close pane, or the **top face button
-(Y / Triangle)** to select Close space. Wait for the selected target to appear in the popup, then press the
-**bottom face button (A / Cross)** to confirm. **Right face (B / Circle)**,
+**Square (Xbox: X)** to select Close pane, or **Triangle (Xbox: Y)** to select Close space.
+Wait for the selected target to appear in the popup, then press **Cross (Xbox: A)** to confirm.
+**Circle (Xbox: B)**,
 **Back / Select**, or the menu button cancels. Closing stops running processes in that
 pane or space; closing a space includes all its panes and tabs, not its workspace group.
 Closing the popup, a focus change, or a controller disconnect cancels the pending action. Finish dictation
