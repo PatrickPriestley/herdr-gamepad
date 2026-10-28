@@ -255,24 +255,24 @@ NAVIGATE
 D-pad                  Focus a neighbouring pane
 Left / right shoulder  Previous / next space
 Left / right trigger   Previous / next tab
-Triangle (Xbox: Y)      Next agent needing attention
-Square (Xbox: X)        Toggle pane zoom
-Cross (Xbox: A)         Enter Respond mode
+Triangle (Xbox: Y)     Next agent needing attention
+Square (Xbox: X)       Toggle pane zoom
+Cross (Xbox: A)        Enter Respond mode
 
 RESPOND
 D-pad                  Move through the agent's options
-Cross (Xbox: A)         Enter / confirm
-Circle (Xbox: B)        Escape
-Create / Share (View)   Return to Navigate
+Cross (Xbox: A)        Enter / confirm
+Circle (Xbox: B)       Escape
+Create / Share (View)  Return to Navigate
 Shoulders, triggers,
   Triangle / Square    Navigate as above and leave Respond
 
 CLOSE ACTIONS
 Menu / Options opens close actions; if voice uses Menu, use left stick click.
-Square (Xbox: X)        Select close pane
-Triangle (Xbox: Y)      Select close space
-Cross (Xbox: A)         Confirm selected close
-Circle (Xbox: B)        Cancel; Back or the menu button also cancels
+Square (Xbox: X)       Select close pane
+Triangle (Xbox: Y)     Select close space
+Cross (Xbox: A)        Confirm selected close
+Circle (Xbox: B)       Cancel; Back or the menu button also cancels
 Closing stops running processes in the pane or space. Focus changes cancel.
 Finish dictation before opening close actions.
 

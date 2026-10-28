@@ -200,7 +200,7 @@ impl Core {
                     menu.choice = Some(CloseKind::Space);
                     ("space", &menu.workspace_id)
                 };
-                vec![toast("Confirm close", &format!("Close {kind} {target}? Stops its running processes. Bottom face: confirm; right face: cancel"), Sound::Request)]
+                vec![toast("Confirm close", &format!("Close {kind} {target}? Stops its running processes. Cross (Xbox: A): Confirm; Circle (Xbox: B): Cancel"), Sound::Request)]
             }
             Btn::A => match menu.choice {
                 Some(CloseKind::Pane) => return vec![Action::ClosePane(menu.pane_id)],
