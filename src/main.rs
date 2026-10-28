@@ -1,4 +1,8 @@
-//! herd-gamepad: drive Herdr with a game controller.
+mod menu;
+mod menu_render;
+#[cfg(test)] mod menu_tests;
+#[cfg(test)] mod menu_render_tests;
+// herd-gamepad: drive Herdr with a game controller.
 
 mod feedback;
 mod config;
