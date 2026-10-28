@@ -1,4 +1,4 @@
-# herd.gamepad
+# herdr.gamepad
 
 A Herdr plugin that lets a game controller drive Herdr: navigate panes, tabs and spaces,
 answer agent prompts, and dictate through whisper.cpp on your machine.
