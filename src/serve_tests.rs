@@ -102,7 +102,7 @@ fn close_requests_do_not_claim_completion_and_failure_is_reported() {
 
 #[test]
 fn mapping_explains_close_selection_confirmation_and_voice_collision() {
-    for text in ["CLOSE ACTIONS", "Left face button       Select close pane", "Top face button        Select close space", "Bottom face button     Confirm selected close", "Menu / Options opens close actions; if voice uses Menu, use left stick click."] {
+    for text in ["CLOSE ACTIONS", "Square (Xbox: X)        Select close pane", "Triangle (Xbox: Y)      Select close space", "Cross (Xbox: A)         Confirm selected close", "Menu / Options opens close actions; if voice uses Menu, use left stick click."] {
         assert!(MAPPING.contains(text), "mapping is missing {text}");
     }
 }
