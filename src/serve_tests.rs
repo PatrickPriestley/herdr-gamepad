@@ -102,7 +102,7 @@ fn close_requests_do_not_claim_completion_and_failure_is_reported() {
 
 #[test]
 fn mapping_explains_close_selection_confirmation_and_voice_collision() {
-    for text in ["CLOSE ACTIONS", "Square (Xbox: X)        Select close pane", "Triangle (Xbox: Y)      Select close space", "Cross (Xbox: A)         Confirm selected close", "Menu / Options opens close actions; if voice uses Menu, use left stick click."] {
+    for text in ["CLOSE ACTIONS", "Square (Xbox: X)       Select close pane", "Triangle (Xbox: Y)     Select close space", "Cross (Xbox: A)        Confirm selected close", "Menu / Options opens close actions; if voice uses Menu, use left stick click."] {
         assert!(MAPPING.contains(text), "mapping is missing {text}");
     }
 }
@@ -184,4 +184,16 @@ fn a_tick_keeps_button_order_after_ready_voice_results() {
         Some(Input::Release(Btn::RStick)), Some(Input::Press(Btn::A))].into_iter();
     assert_eq!(next_inputs(|| events.next(), &rx), vec![Input::Transcript("ready".into()),
         Input::Press(Btn::RStick), Input::Release(Btn::RStick), Input::Press(Btn::A)]);
+}
+
+#[test]
+fn mapping_button_descriptions_align_with_navigation_rows() {
+    let labels = ["Triangle (Xbox: Y)", "Square (Xbox: X)", "Cross (Xbox: A)", "Circle (Xbox: B)", "Create / Share (View)"];
+    let rows: Vec<_> = MAPPING.lines().filter(|line| labels.iter().any(|label| line.starts_with(label))).collect();
+    assert_eq!(rows.len(), 10);
+    let expected = MAPPING.lines().find(|line| line.starts_with("D-pad ")).unwrap().find("Focus").unwrap();
+    for row in rows {
+        let after_label = &row[row.find(')').unwrap() + 1..];
+        assert_eq!(row.len() - after_label.trim_start().len(), expected, "misaligned mapping row: {row}");
+    }
 }

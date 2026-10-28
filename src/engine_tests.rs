@@ -635,7 +635,7 @@ mod closing {
     }
     fn selected(c: &mut Core, s: &Snapshot, button: Btn) {
         let (kind, target) = if button == Btn::X { ("pane", "w5:p1") } else { ("space", "w5") };
-        assert_eq!(c.handle(Input::Press(button), s), vec![toast("Confirm close", &format!("Close {kind} {target}? Stops its running processes. Bottom face: confirm; right face: cancel"), Sound::Request)]);
+        assert_eq!(c.handle(Input::Press(button), s), vec![toast("Confirm close", &format!("Close {kind} {target}? Stops its running processes. Cross (Xbox: A): Confirm; Circle (Xbox: B): Cancel"), Sound::Request)]);
     }
     fn assert_navigation(c: &mut Core, s: &Snapshot) {
         assert_eq!(c.handle(Input::Press(Btn::X), s), vec![Action::ToggleZoom("w5:p1".into())]);
