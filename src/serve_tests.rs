@@ -72,7 +72,7 @@ fn quiet_mode_feedback_preserves_the_key_press() {
         ("herdr agent send-keys", Ok("")),
     ]);
     apply_actions(&Herdr { runner: &fake }, actions, &mut crate::feedback::Feedback::default(), |_| panic!("unexpected recording"));
-    assert_eq!(fake.calls(), vec!["herdr agent send-keys w5:p1 down"]);
+    assert_eq!(fake.calls(), vec!["herdr agent send-keys w5:p1 enter", "herdr agent send-keys w5:p1 down"]);
 }
 
 #[test]
@@ -211,4 +211,10 @@ fn mapping_explains_non_agent_interact_keys_and_escape() {
 fn mapping_distinguishes_circle_navigation_from_share_escape() {
     assert_eq!(MAPPING.matches("Circle (Xbox: B)       Return to Navigate").count(),2);
     assert_eq!(MAPPING.matches("Create / Share (View)  Escape / back in the app").count(),2);
+}
+
+#[test]
+fn mapping_explains_single_press_waiting_agent_confirmation() {
+    assert!(MAPPING.contains("One Cross (Xbox: A) press answers a waiting agent, including from Navigate."));
+    assert!(!MAPPING.contains("acknowledgement"));
 }
