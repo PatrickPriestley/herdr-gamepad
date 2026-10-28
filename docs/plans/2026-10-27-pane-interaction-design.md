@@ -26,3 +26,9 @@ Add a distinct Interact mode and pane-key action. Existing agent-key routing and
 ## Verification
 
 Write positive failing assertions first for entry, arrow/Enter/Space/Escape routing, exit, focus/agent changes, invalid IDs, disconnect, and unchanged agent behavior. Verify the pane adapter's argv and mapping. Assemble the complete plan in scratch, build and test, mutation-test changed pure logic, and delete each new guard to prove coverage before committing the plan. Apply through a fresh implementer, spec review, quality review, and different-model final review. Validate real pane input using an isolated receiver; PR Tracker interaction remains a user hardware check before claiming end-to-end controller validation.
+
+## User correction: Circle returns to navigation
+
+The user requested Circle as the return-to-navigation button when Cross selects. Circle (Xbox: B) now leaves both Respond and Interact without sending Escape. Share/Create (Xbox: View) sends Escape inside either mode, preserving in-application back/cancel. Close-menu cancellation still accepts both buttons. Cross remains the explicit entry and Enter button.
+
+An isolated baseline replay confirmed a navigation trap: Cross enters Respond on a blocked agent, View returns to Navigate, then D-pad Down immediately re-enters Respond and sends an arrow. Evidence: /tmp/circle-existing-exit-trap-red.log. Remove this automatic entry: D-pad always moves pane focus in Navigate, including on blocked agents; Cross explicitly enters Respond or Interact. Agent Enter acknowledgement safeguards remain. Update mapping, README, and regression tests to match.
