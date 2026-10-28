@@ -74,3 +74,11 @@ authorship: the same level as pr-tracker. Signing and notarization are out of sc
 
 Linux targets, notarization, changes to `publish_release.py`, retroactive assets for v0.1.0
 (its users fall back to the source build).
+
+## Review correction: bind binaries to the requested checkout
+
+The version-only selection can install an old binary into a newer checkout with the same manifest version. This was reproduced with a local release fixture and an available cargo stub: installation succeeded with `released-old` instead of the newer source. The user requested fixing PR #5 and its review findings.
+
+A Herdr-style shallow fetch of a tag or SHA does not necessarily create a local tag (probe: /tmp/pr5-git-probe-mkvg888s). Do not infer artifact identity from local tag names. Each tested CI archive will include `herd-gamepad.commit`, containing the tested checkout's commit ID, covered by the existing archive checksum. Before installing, require a clean Git checkout rooted at the source directory and an exact match between its HEAD and the archive's commit metadata. Missing, malformed, or mismatched metadata falls back to source; missing cargo must fail while preserving the installed binary. No extra network lookup or new runtime dependency is needed.
+
+Test clean matching checkouts, newer commits with unchanged versions, tracked and untracked source changes, missing Git metadata, and invalid provenance. Add a real checksum-tool absence fixture and a successful sha256sum-only fixture, with mutations proving both branches. Keep checksum verification fail-closed. Fix publishing documentation and place this unreleased feature above v0.2.0 in the changelog; existing v0.2.0 remains source-built. Do not change the released tag or publish another release as part of this PR fix.
