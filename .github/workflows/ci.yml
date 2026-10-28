@@ -50,7 +50,8 @@ jobs:
         run: |
           asset=herd-gamepad-${{ matrix.target }}.tar.gz
           mkdir -p dist
-          tar -czf "dist/$asset" -C target/release herd-gamepad
+          git rev-parse HEAD > target/release/herd-gamepad.commit
+          tar -czf "dist/$asset" -C target/release herd-gamepad herd-gamepad.commit
           (cd dist && shasum -a 256 "$asset" > "$asset.sha256")
           cat "dist/$asset.sha256"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

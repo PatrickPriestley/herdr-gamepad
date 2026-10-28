@@ -1,13 +1,13 @@
 #!/bin/sh
 # Put the herd-gamepad binary at bin/herd-gamepad (or $HERD_GAMEPAD_OUT). An installed copy
 # that already has its binary and ships no sources does nothing.
-# Order: the GitHub release binary for this platform and the manifest's version, checked
-# against its SHA-256; then cargo when the download fails. HERD_GAMEPAD_BUILD=source skips
+# Order: the GitHub release binary for this platform and version, verified by SHA-256
+# and its embedded source commit against a clean Git checkout; otherwise build with cargo. HERD_GAMEPAD_BUILD=source skips
 # the download (install.sh sets it so a development checkout builds local changes); any other
 # value is an error. HERD_GAMEPAD_RELEASE_URL overrides the release base URL; tests point it
 # at a directory.
 set -eu
-root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 out=${HERD_GAMEPAD_OUT:-"$root/bin/herd-gamepad"}
 if [ -z "${HERD_GAMEPAD_OUT:-}" ] && [ -x "$out" ] && [ ! -f "$root/Cargo.toml" ]; then
   exit 0
@@ -18,12 +18,28 @@ case "${HERD_GAMEPAD_BUILD:-}" in
 esac
 repo=PatrickPriestley/herdr-gamepad
 
-# The SHA-256 of a file, from whichever of shasum and sha256sum exists.
+# The SHA-256 of a file, from whichever tool exists. Capture the tool first so a
+# successful cut cannot hide a failing checksum command.
 sha256_of() {
-  if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | cut -d' ' -f1
-  elif command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
+  if command -v shasum >/dev/null 2>&1; then digest=$(shasum -a 256 "$1") || return 1
+  elif command -v sha256sum >/dev/null 2>&1; then digest=$(sha256sum "$1") || return 1
   else return 1
   fi
+  printf '%s\n' "$digest" | cut -d' ' -f1
+}
+
+# Git identity is useful only for this checkout, with no local source changes.
+# A source archive or a directory nested in another repository must build from source.
+checkout_revision() {
+  checkout_root=$(git -C "$root" rev-parse --show-toplevel 2>/dev/null) || return 1
+  [ "$checkout_root" = "$root" ] || return 1
+  checkout_head=$(git -C "$root" rev-parse --verify HEAD 2>/dev/null) || return 1
+  changes=$(git -C "$root" status --porcelain --untracked-files=normal 2>/dev/null) || return 1
+  if [ -n "$changes" ]; then
+    echo "herd-gamepad: checkout is not clean; building its local sources" >&2
+    return 1
+  fi
+  printf '%s\n' "$checkout_head"
 }
 
 # Download and verify the release binary into $1; non-zero with the reason on stderr otherwise.
@@ -51,8 +67,21 @@ fetch_release() {
     echo "herd-gamepad: checksum mismatch for $asset (want ${want:-nothing}, got ${got:-nothing}); not installing it" >&2
     rm -rf "$dl"; return 1
   fi
-  if ! tar -xzf "$dl/$asset" -C "$dl" herd-gamepad || ! cp "$dl/herd-gamepad" "$1"; then
+  if ! tar -xzf "$dl/$asset" -C "$dl" herd-gamepad herd-gamepad.commit; then
     echo "herd-gamepad: release asset $asset did not contain a usable herd-gamepad binary" >&2
+    rm -rf "$dl"; return 1
+  fi
+  # Downloads may take minutes; validate the checkout after downloading and extracting.
+  revision=$(checkout_revision) || {
+    echo "herd-gamepad: cannot verify a clean Git checkout; building from source" >&2
+    rm -rf "$dl"; return 1
+  }
+  if ! built_revision=$(cat "$dl/herd-gamepad.commit") || [ "$built_revision" != "$revision" ]; then
+    echo "herd-gamepad: release asset source commit mismatch; building this checkout" >&2
+    rm -rf "$dl"; return 1
+  fi
+  if ! cp "$dl/herd-gamepad" "$1"; then
+    echo "herd-gamepad: could not stage the release binary" >&2
     rm -rf "$dl"; return 1
   fi
   rm -rf "$dl"

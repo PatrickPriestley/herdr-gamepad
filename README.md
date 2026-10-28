@@ -14,15 +14,19 @@ Triangle. Tested by hand on a DualSense; other controllers are untested.
 Requirements:
 
 - macOS and Herdr 0.9.1 or later.
-- Git. A Rust toolchain (`cargo`) and the Xcode Command Line Tools are needed only when no
-  prebuilt binary matches your Mac: the fallback build links with the system linker.
+- Git. A Rust toolchain (`cargo`) and the Xcode Command Line Tools are needed when no
+  verified prebuilt binary matches your Mac and source checkout.
 - `whisper-cli` from Homebrew's `whisper-cpp` package.
 - A controller paired with macOS and microphone permission for the terminal app.
 
-Herdr runs the build script during installation. It downloads the release binary for your
-Mac (Apple silicon or Intel), checks its SHA-256 against the checksum published with it, and
-only compiles from source with the committed Cargo.lock when no binary is available.
-Set `HERD_GAMEPAD_BUILD=source` to compile regardless.
+Herdr runs the build script during installation. New releases will include binaries for
+Apple Silicon and Intel Macs. The installer verifies the archive's SHA-256 and its embedded
+source commit against a clean Git checkout before using a binary. A different commit,
+local changes, missing Git metadata, or unavailable/unverifiable assets trigger a source
+build with the committed Cargo.lock. Set `HERD_GAMEPAD_BUILD=source` to compile regardless.
+
+Releases through v0.2.0 predate prebuilt assets and require Rust and the Xcode Command
+Line Tools.
 
 ```sh
 brew install whisper-cpp
@@ -158,6 +162,11 @@ Design notes are in `docs/plans/`. CI builds and tests on Apple silicon and Inte
 controller and microphone behaviour need real hardware.
 
 ## Releasing
+
+Releases publish automatically after a stable version tag passes both macOS CI jobs.
+The jobs package Apple Silicon and Intel binaries with their tested commit metadata and
+SHA-256 checksums. The release includes both archives and checksums. Releases through
+v0.2.0 remain source-built; their tags and assets are not rewritten.
 
 Merge a PR that bumps the version in `Cargo.toml`, `Cargo.lock` and `herdr-plugin.toml` and
 updates `CHANGELOG.md`, then tag `main`:
