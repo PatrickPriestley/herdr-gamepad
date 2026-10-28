@@ -24,7 +24,7 @@ impl Btn {
 pub enum Input { Press(Btn), Release(Btn), Connected, Disconnected, Transcript(String), TranscriptFailed(String) }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Mode { Navigate, Respond }
+pub enum Mode { Navigate, Respond, Interact }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Status { Idle, Working, Blocked, Done, Unknown }
@@ -49,7 +49,7 @@ pub struct Snapshot { pub focused: Option<Pane>, pub workspaces: Vec<Workspace>,
 pub enum Dir { Left, Right, Up, Down }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Key { Up, Down, Left, Right, Enter, Esc }
+pub enum Key { Up, Down, Left, Right, Enter, Esc, Space }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(not(test), allow(dead_code))] // Done is not yet used by a toast; the herdr tests map it.
@@ -65,6 +65,7 @@ pub enum Action {
     ClosePane(String),
     CloseWorkspace(String),
     SendKeys { target: String, keys: Vec<Key> },
+    SendPaneKeys { target: String, keys: Vec<Key> },
     Prompt { target: String, text: String },
     Toast { title: String, body: String, sound: Sound },
     StartRecording,
@@ -92,6 +93,8 @@ pub struct Core {
     voice_button: Btn,
     /// The pane Respond was entered on; a press with another pane focused leaves Respond instead of answering.
     respond_pane: Option<String>,
+    /// Explicitly selected non-agent pane; an agent appearing invalidates this mode.
+    interact_pane: Option<String>,
     /// The user has pressed a key while this pane's agent was Blocked: the next A may answer the dialog.
     acknowledged_block: bool,
     recording: bool,
@@ -103,7 +106,7 @@ pub struct Core {
 
 impl Core {
     pub fn new(voice_button: Btn) -> Self {
-        Core { close_menu: None, mode: Mode::Navigate, voice_button, respond_pane: None, acknowledged_block: false, recording: false, transcribing: false, voice_target: None }
+        Core { close_menu: None, mode: Mode::Navigate, voice_button, respond_pane: None, interact_pane: None, acknowledged_block: false, recording: false, transcribing: false, voice_target: None }
     }
     pub fn mode(&self) -> Mode { self.mode }
     #[cfg_attr(not(test), allow(dead_code))]
@@ -215,15 +218,21 @@ impl Core {
 
     fn press(&mut self, b: Btn, snap: &Snapshot) -> Vec<Action> {
         let focused = snap.focused.as_ref();
+        if self.mode == Mode::Interact && !focused.is_some_and(|p| {
+            Some(&p.pane_id) == self.interact_pane.as_ref() && p.agent.is_none()
+        }) {
+            self.enter_navigate();
+            return vec![toast("Navigate mode", "pane changed", Sound::None)];
+        }
         let agent_pane = focused.filter(|p| p.agent.is_some());
-        // Navigation works in both modes and leaves Respond.
+        // Global navigation leaves either pane interaction mode.
         let nav = match b {
             Btn::Lb => Some(step_workspace(snap, -1)),
             Btn::Rb => Some(step_workspace(snap, 1)),
             Btn::Lt => Some(step_tab(snap, -1)),
             Btn::Rt => Some(step_tab(snap, 1)),
             Btn::Y => Some(next_attention(snap)),
-            Btn::X => Some(focused.map(|p| vec![Action::ToggleZoom(p.pane_id.clone())]).unwrap_or_default()),
+            Btn::X if self.mode != Mode::Interact => Some(focused.map(|p| vec![Action::ToggleZoom(p.pane_id.clone())]).unwrap_or_default()),
             _ => None,
         };
         if let Some(actions) = nav { return self.leave_respond(actions); }
@@ -249,11 +258,29 @@ impl Core {
                         if blocked { vec![toast("Respond mode", "agent waiting; press the bottom face button again to confirm", Sound::None)] }
                         else { vec![toast("Respond mode", "D-pad moves; bottom confirms, right escapes; Back / Select leaves", Sound::None)] }
                     }
-                    None => vec![toast("No agent here", "focus a pane with an agent first", Sound::None)],
+                    None => match focused.filter(|p| !p.pane_id.is_empty()) {
+                        Some(p) => {
+                            self.mode = Mode::Interact;
+                            self.interact_pane = Some(p.pane_id.clone());
+                            vec![toast("Interact mode", "D-pad moves; Cross enters, Square selects, Circle goes back; Create leaves", Sound::None)]
+                        }
+                        None => vec![toast("No pane here", "focus a pane first", Sound::None)],
+                    },
                 },
                 _ => vec![],
             },
             Mode::Respond => self.respond(b, snap),
+            Mode::Interact => {
+                if b == Btn::View {
+                    self.enter_navigate();
+                    return vec![toast("Navigate mode", "", Sound::None)];
+                }
+                let key = if b == Btn::X { Some(Key::Space) } else { key_for(b) };
+                key.map(|key| vec![Action::SendPaneKeys {
+                    target: self.interact_pane.clone().expect("Interact has a validated target"),
+                    keys: vec![key],
+                }]).unwrap_or_default()
+            }
         }
     }
 
@@ -267,11 +294,12 @@ impl Core {
         self.cancel_close();
         self.mode = Mode::Navigate;
         self.respond_pane = None;
+        self.interact_pane = None;
         self.acknowledged_block = false;
     }
 
     fn leave_respond(&mut self, actions: Vec<Action>) -> Vec<Action> {
-        if self.mode != Mode::Respond { return actions; }
+        if self.mode == Mode::Navigate { return actions; }
         self.enter_navigate();
         let mut out = vec![toast("Navigate mode", "", Sound::None)];
         out.extend(actions);

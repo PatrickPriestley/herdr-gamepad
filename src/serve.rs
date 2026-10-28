@@ -257,7 +257,7 @@ Left / right shoulder  Previous / next space
 Left / right trigger   Previous / next tab
 Triangle (Xbox: Y)     Next agent needing attention
 Square (Xbox: X)       Toggle pane zoom
-Cross (Xbox: A)        Enter Respond mode
+Cross (Xbox: A)        Enter Respond / Interact
 
 RESPOND
 D-pad                  Move through the agent's options
@@ -266,6 +266,18 @@ Circle (Xbox: B)       Escape
 Create / Share (View)  Return to Navigate
 Shoulders, triggers,
   Triangle / Square    Navigate as above and leave Respond
+
+INTERACT (NON-AGENT PANES)
+Cross enters this mode on the focused pane without sending a key.
+D-pad                  Send arrow keys to the pane
+Cross (Xbox: A)        Enter / open
+Square (Xbox: X)       Space / select
+Circle (Xbox: B)       Escape / back
+Create / Share (View)  Return to Navigate
+Shoulders, triggers,
+  Triangle             Navigate as above and leave Interact
+Focus changes or an agent appearing leave Interact without sending a key.
+PR Tracker: left/right choose categories; Square opens details; up/down move.
 
 CLOSE ACTIONS
 Menu / Options opens close actions; if voice uses Menu, use left stick click.

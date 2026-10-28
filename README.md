@@ -62,9 +62,9 @@ The card also shows your configured voice button.
 
 | Physical control | Xbox | PlayStation | Action |
 |---|---|---|---|
-| Bottom face | A | Cross | Enter Respond; confirm in Respond |
-| Right face | B | Circle | Escape in Respond |
-| Left face | X | Square | Toggle zoom |
+| Bottom face | A | Cross | Enter Respond / Interact; Enter when inside |
+| Right face | B | Circle | Escape in Respond / Interact |
+| Left face | X | Square | Toggle zoom; Space in Interact |
 | Top face | Y | Triangle | Next agent needing attention |
 | Left / right shoulder | LB / RB | L1 / R1 | Previous / next space |
 | Left / right trigger | LT / RT | L2 / R2 | Previous / next tab |
@@ -76,6 +76,16 @@ D-pad moves between panes in Navigate, and between options in Respond. On a bloc
 agent, D-pad automatically enters Respond. Each confirmation requires acknowledgement
 first; press Cross (Xbox: A) again to confirm. Face-button positions always determine actions,
 even on controllers with different lettering.
+
+For a non-agent pane such as PR Tracker, press **Cross (Xbox: A)** to enter **Interact**.
+That first press only enters the mode. The D-pad sends arrow keys, **Cross (Xbox: A)**
+sends Enter, **Square (Xbox: X)** sends Space, and **Circle (Xbox: B)** sends Escape.
+In PR Tracker, left/right chooses a category, Square opens its details, and up/down
+moves through items. **Create / Share (Xbox: View)** returns to pane navigation;
+shoulders, triggers, and Triangle also leave Interact and keep their usual navigation actions.
+A focus change or an agent appearing in the pane exits Interact and consumes the next press.
+This mode works in ordinary terminal panes, including shells; the app decides what each key does.
+Dictation still requires an agent pane.
 
 Release the voice button to transcribe and automatically submit to an idle, done, or
 working agent—no extra Enter or controller press is needed. If focus changed, the pane

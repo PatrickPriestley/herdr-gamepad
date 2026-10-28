@@ -210,6 +210,11 @@ pub fn argv_for(a: &Action) -> Vec<String> {
             v.extend(keys.iter().map(|k| key_name(*k).to_string()));
             v
         }
+        Action::SendPaneKeys { target, keys } => {
+            let mut v = s(&["herdr", "pane", "send-keys", target]);
+            v.extend(keys.iter().map(|k| key_name(*k).to_string()));
+            v
+        }
         Action::Prompt { target, text } => s(&["herdr", "agent", "prompt", target, text]),
         Action::Toast { title, body, sound } => {
             let mut v = s(&["herdr", "notification", "show", title]);
@@ -226,7 +231,7 @@ fn dir_name(d: Dir) -> &'static str {
 }
 
 fn key_name(k: Key) -> &'static str {
-    match k { Key::Up => "up", Key::Down => "down", Key::Left => "left", Key::Right => "right", Key::Enter => "enter", Key::Esc => "esc" }
+    match k { Key::Up => "up", Key::Down => "down", Key::Left => "left", Key::Right => "right", Key::Enter => "enter", Key::Esc => "esc", Key::Space => "space" }
 }
 
 fn sound_name(s: Sound) -> &'static str {
