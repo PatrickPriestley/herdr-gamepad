@@ -64,13 +64,15 @@ fn quiet_mode_feedback_preserves_the_key_press() {
     use crate::herdr_tests::Fake;
     let mut snap = crate::engine_tests::snap();
     snap.focused.as_mut().unwrap().status = Some(Status::Blocked);
-    let actions = Core::new(Btn::RStick).handle(Input::Press(Btn::Down), &snap);
+    let mut core = Core::new(Btn::RStick);
+    let mut actions = core.handle(Input::Press(Btn::A), &snap);
+    actions.extend(core.handle(Input::Press(Btn::Down), &snap));
     let fake = Fake::new(vec![
         ("herdr notification show", Err("notifications unavailable")),
         ("herdr agent send-keys", Ok("")),
     ]);
     apply_actions(&Herdr { runner: &fake }, actions, &mut crate::feedback::Feedback::default(), |_| panic!("unexpected recording"));
-    assert_eq!(fake.calls(), vec!["herdr agent send-keys w5:p1 down"]);
+    assert_eq!(fake.calls(), vec!["herdr agent send-keys w5:p1 enter", "herdr agent send-keys w5:p1 down"]);
 }
 
 #[test]
@@ -80,7 +82,7 @@ fn snapshot_failure_disarms_pending_close() {
     assert_eq!(c.handle(Input::Press(Btn::Menu), &s), vec![toast("Close actions", "left face: close pane; top face: close space; right face: cancel", Sound::None)]);
     assert!(matches!(c.handle(Input::Press(Btn::X), &s).first(), Some(Action::Toast { title, .. }) if title == "Confirm close"));
     on_snapshot_failure(&mut c, Input::Press(Btn::A), "offline");
-    assert_eq!(c.handle(Input::Press(Btn::A), &s), vec![toast("Respond mode", "D-pad moves; bottom confirms, right escapes; Back / Select leaves", Sound::None)]);
+    assert_eq!(c.handle(Input::Press(Btn::A), &s), vec![toast("Respond mode", "D-pad moves; Cross confirms; Circle returns to Navigate; Create / Share escapes", Sound::None)]);
 }
 
 #[test]
@@ -190,10 +192,29 @@ fn a_tick_keeps_button_order_after_ready_voice_results() {
 fn mapping_button_descriptions_align_with_navigation_rows() {
     let labels = ["Triangle (Xbox: Y)", "Square (Xbox: X)", "Cross (Xbox: A)", "Circle (Xbox: B)", "Create / Share (View)"];
     let rows: Vec<_> = MAPPING.lines().filter(|line| labels.iter().any(|label| line.starts_with(label))).collect();
-    assert_eq!(rows.len(), 10);
+    assert_eq!(rows.len(), 14);
     let expected = MAPPING.lines().find(|line| line.starts_with("D-pad ")).unwrap().find("Focus").unwrap();
     for row in rows {
         let after_label = &row[row.find(')').unwrap() + 1..];
         assert_eq!(row.len() - after_label.trim_start().len(), expected, "misaligned mapping row: {row}");
     }
+}
+
+#[test]
+fn mapping_explains_non_agent_interact_keys_and_escape() {
+    for text in ["INTERACT (NON-AGENT PANES)", "Enter Respond / Interact", "Send arrow keys to the pane", "Space / select", "Return to Navigate"] {
+        assert!(MAPPING.contains(text), "mapping is missing {text}");
+    }
+}
+
+#[test]
+fn mapping_distinguishes_circle_navigation_from_share_escape() {
+    assert_eq!(MAPPING.matches("Circle (Xbox: B)       Return to Navigate").count(),2);
+    assert_eq!(MAPPING.matches("Create / Share (View)  Escape / back in the app").count(),2);
+}
+
+#[test]
+fn mapping_explains_single_press_waiting_agent_confirmation() {
+    assert!(MAPPING.contains("One Cross (Xbox: A) press answers a waiting agent, including from Navigate."));
+    assert!(!MAPPING.contains("acknowledgement"));
 }

@@ -257,15 +257,27 @@ Left / right shoulder  Previous / next space
 Left / right trigger   Previous / next tab
 Triangle (Xbox: Y)     Next agent needing attention
 Square (Xbox: X)       Toggle pane zoom
-Cross (Xbox: A)        Enter Respond mode
+Cross (Xbox: A)        Enter Respond / Interact
 
 RESPOND
 D-pad                  Move through the agent's options
 Cross (Xbox: A)        Enter / confirm
-Circle (Xbox: B)       Escape
-Create / Share (View)  Return to Navigate
+Circle (Xbox: B)       Return to Navigate
+Create / Share (View)  Escape / back in the app
 Shoulders, triggers,
   Triangle / Square    Navigate as above and leave Respond
+
+INTERACT (NON-AGENT PANES)
+Cross enters this mode on the focused pane without sending a key.
+D-pad                  Send arrow keys to the pane
+Cross (Xbox: A)        Enter / open
+Square (Xbox: X)       Space / select
+Circle (Xbox: B)       Return to Navigate
+Create / Share (View)  Escape / back in the app
+Shoulders, triggers,
+  Triangle             Navigate as above and leave Interact
+Focus changes or an agent appearing leave Interact without sending a key.
+PR Tracker: left/right choose categories; Square opens details; up/down move.
 
 CLOSE ACTIONS
 Menu / Options opens close actions; if voice uses Menu, use left stick click.
@@ -276,8 +288,8 @@ Circle (Xbox: B)       Cancel; Back or the menu button also cancels
 Closing stops running processes in the pane or space. Focus changes cancel.
 Finish dictation before opening close actions.
 
-A D-pad press on a blocked agent auto-switches to Respond.
-Each blocked-agent confirmation needs acknowledgement first; press Cross (Xbox: A) again.
+D-pad always moves pane focus in Navigate; Cross enters Respond on an agent.
+One Cross (Xbox: A) press answers a waiting agent, including from Navigate.
 Routine status updates are in Gamepad logs. Errors are shown at most once per 5 seconds.
 Close actions use a live popup; wait for the selected target to appear before confirming.
 Button positions define the actions, even when your controller uses other labels.

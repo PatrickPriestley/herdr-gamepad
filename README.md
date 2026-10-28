@@ -23,7 +23,7 @@ build script during installation, using the committed Cargo.lock.
 
 ```sh
 brew install whisper-cpp
-herdr plugin install PatrickPriestley/herdr-gamepad --ref v0.1.0
+herdr plugin install PatrickPriestley/herdr-gamepad --ref v0.2.0
 ```
 
 If you previously used `./install.sh`, stop its Gamepad daemon with Ctrl-C in the
@@ -39,7 +39,7 @@ The first time you hold the voice button, macOS asks whether the terminal app ma
 microphone; if that is denied, every hold ends with a "Recording failed" toast (allow it in
 System Settings > Privacy & Security > Microphone).
 
-## Background operation (next release)
+## Background operation
 
 "Gamepad: start" listens in the background without opening a pane. "Gamepad: stop"
 ends listening and cancels active recording or transcription. Repeated Start/Stop is safe.
@@ -51,7 +51,6 @@ state directory (`daemon.log` and `daemon.log.1`). Logs can include transcript p
 "Gamepad: show the mapping" opens the mapping overlay only when requested. Closing
 either overlay leaves the background daemon running.
 
-These controls are on the development branch and are not in the v0.1.0 release above.
 When upgrading from v0.1.0, close its old Gamepad daemon pane once before starting the
 new background version. Settings and downloaded models are preserved.
 
@@ -62,20 +61,32 @@ The card also shows your configured voice button.
 
 | Physical control | Xbox | PlayStation | Action |
 |---|---|---|---|
-| Bottom face | A | Cross | Enter Respond; confirm in Respond |
-| Right face | B | Circle | Escape in Respond |
-| Left face | X | Square | Toggle zoom |
+| Bottom face | A | Cross | Enter Respond / Interact; answer a waiting agent |
+| Right face | B | Circle | Return to Navigate |
+| Left face | X | Square | Toggle zoom; Space in Interact |
 | Top face | Y | Triangle | Next agent needing attention |
 | Left / right shoulder | LB / RB | L1 / R1 | Previous / next space |
 | Left / right trigger | LT / RT | L2 / R2 | Previous / next tab |
-| Back / Select | View | Create (PS5) / Share (PS4) | Return to Navigate |
+| Back / Select | View | Create (PS5) / Share (PS4) | Escape in Respond / Interact |
 | Right stick click | Right stick click | R3 | Hold to dictate (default) |
 | Menu / Options | Menu | Options | Open close actions |
 
-D-pad moves between panes in Navigate, and between options in Respond. On a blocked
-agent, D-pad automatically enters Respond. Each confirmation requires acknowledgement
-first; press Cross (Xbox: A) again to confirm. Face-button positions always determine actions,
+D-pad moves between panes in Navigate, even when an agent is blocked. Press Cross
+(Xbox: A) to enter Respond and move between its options. If the agent is waiting at
+a question, that first Cross press also sends Enter. In Respond, every Cross press
+sends Enter immediately; no extra confirmation press is required. Face-button positions always determine actions,
 even on controllers with different lettering.
+
+For a non-agent pane such as PR Tracker, press **Cross (Xbox: A)** to enter **Interact**.
+That first press only enters the mode. The D-pad sends arrow keys, **Cross (Xbox: A)**
+sends Enter, **Square (Xbox: X)** sends Space, and **Create / Share (Xbox: View)** sends
+Escape to go back inside the app. **Circle (Xbox: B)** returns to pane navigation
+without sending a key. The same Circle/Share distinction applies in Respond.
+In PR Tracker, left/right chooses a category, Square opens its details, and up/down
+moves through items. Shoulders, triggers, and Triangle also leave Interact and keep their usual navigation actions.
+A focus change or an agent appearing in the pane exits Interact and consumes the next press.
+This mode works in ordinary terminal panes, including shells; the app decides what each key does.
+Dictation still requires an agent pane.
 
 Release the voice button to transcribe and automatically submit to an idle, done, or
 working agent—no extra Enter or controller press is needed. If focus changed, the pane

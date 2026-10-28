@@ -24,7 +24,7 @@ impl Btn {
 pub enum Input { Press(Btn), Release(Btn), Connected, Disconnected, Transcript(String), TranscriptFailed(String) }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Mode { Navigate, Respond }
+pub enum Mode { Navigate, Respond, Interact }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Status { Idle, Working, Blocked, Done, Unknown }
@@ -49,7 +49,7 @@ pub struct Snapshot { pub focused: Option<Pane>, pub workspaces: Vec<Workspace>,
 pub enum Dir { Left, Right, Up, Down }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Key { Up, Down, Left, Right, Enter, Esc }
+pub enum Key { Up, Down, Left, Right, Enter, Esc, Space }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(not(test), allow(dead_code))] // Done is not yet used by a toast; the herdr tests map it.
@@ -65,6 +65,7 @@ pub enum Action {
     ClosePane(String),
     CloseWorkspace(String),
     SendKeys { target: String, keys: Vec<Key> },
+    SendPaneKeys { target: String, keys: Vec<Key> },
     Prompt { target: String, text: String },
     Toast { title: String, body: String, sound: Sound },
     StartRecording,
@@ -92,8 +93,8 @@ pub struct Core {
     voice_button: Btn,
     /// The pane Respond was entered on; a press with another pane focused leaves Respond instead of answering.
     respond_pane: Option<String>,
-    /// The user has pressed a key while this pane's agent was Blocked: the next A may answer the dialog.
-    acknowledged_block: bool,
+    /// Explicitly selected non-agent pane; an agent appearing invalidates this mode.
+    interact_pane: Option<String>,
     recording: bool,
     /// A transcription is running; its result decides `voice_target`'s fate.
     transcribing: bool,
@@ -103,7 +104,7 @@ pub struct Core {
 
 impl Core {
     pub fn new(voice_button: Btn) -> Self {
-        Core { close_menu: None, mode: Mode::Navigate, voice_button, respond_pane: None, acknowledged_block: false, recording: false, transcribing: false, voice_target: None }
+        Core { close_menu: None, mode: Mode::Navigate, voice_button, respond_pane: None, interact_pane: None, recording: false, transcribing: false, voice_target: None }
     }
     pub fn mode(&self) -> Mode { self.mode }
     #[cfg_attr(not(test), allow(dead_code))]
@@ -136,7 +137,7 @@ impl Core {
             Input::Release(_) => vec![],
             Input::Connected => vec![toast("Controller connected", "", Sound::None)],
             Input::Disconnected => {
-                // Whatever was acknowledged on the old controller does not carry over to the next one.
+                // A disconnected controller leaves every interaction mode.
                 self.enter_navigate();
                 if !self.recording { return vec![toast("Controller disconnected", "", Sound::None)]; }
                 self.recording = false;
@@ -215,63 +216,79 @@ impl Core {
 
     fn press(&mut self, b: Btn, snap: &Snapshot) -> Vec<Action> {
         let focused = snap.focused.as_ref();
+        if self.mode == Mode::Interact && !focused.is_some_and(|p| {
+            Some(&p.pane_id) == self.interact_pane.as_ref() && p.agent.is_none()
+        }) {
+            self.enter_navigate();
+            return vec![toast("Navigate mode", "pane changed", Sound::None)];
+        }
         let agent_pane = focused.filter(|p| p.agent.is_some());
-        // Navigation works in both modes and leaves Respond.
+        // Global navigation leaves either pane interaction mode.
         let nav = match b {
             Btn::Lb => Some(step_workspace(snap, -1)),
             Btn::Rb => Some(step_workspace(snap, 1)),
             Btn::Lt => Some(step_tab(snap, -1)),
             Btn::Rt => Some(step_tab(snap, 1)),
             Btn::Y => Some(next_attention(snap)),
-            Btn::X => Some(focused.map(|p| vec![Action::ToggleZoom(p.pane_id.clone())]).unwrap_or_default()),
+            Btn::X if self.mode != Mode::Interact => Some(focused.map(|p| vec![Action::ToggleZoom(p.pane_id.clone())]).unwrap_or_default()),
             _ => None,
         };
         if let Some(actions) = nav { return self.leave_respond(actions); }
         let blocked = agent_pane.is_some_and(|p| p.status == Some(Status::Blocked));
-        if self.mode == Mode::Navigate && blocked && matches!(b, Btn::Up | Btn::Down | Btn::Left | Btn::Right) {
-            // The press was aimed at moving focus, not at the dialog: the arrow goes through but is no
-            // acknowledgement, so the next A is swallowed once. `respond` is bypassed because it would count it.
-            self.enter_respond(agent_pane, false);
-            return vec![
-                toast("Respond mode", "the agent is waiting for you", Sound::None),
-                Action::SendKeys { target: agent_pane.map(|p| p.pane_id.clone()).unwrap_or_default(), keys: vec![key_of(b)] },
-            ];
-        }
         match self.mode {
             Mode::Navigate => match b {
                 Btn::Up | Btn::Down | Btn::Left | Btn::Right => focused
                     .map(|p| vec![Action::FocusDirection { pane_id: p.pane_id.clone(), dir: dir_of(b) }])
                     .unwrap_or_default(),
                 Btn::A => match agent_pane {
-                    Some(_) => {
-                        // Entering on a blocked agent is the acknowledgement; the next A confirms.
-                        self.enter_respond(agent_pane, blocked);
-                        if blocked { vec![toast("Respond mode", "agent waiting; press the bottom face button again to confirm", Sound::None)] }
-                        else { vec![toast("Respond mode", "D-pad moves; bottom confirms, right escapes; Back / Select leaves", Sound::None)] }
+                    Some(p) => {
+                        self.enter_respond(p);
+                        let mut out = vec![toast("Respond mode", "D-pad moves; Cross confirms; Circle returns to Navigate; Create / Share escapes", Sound::None)];
+                        if blocked {
+                            out.push(Action::SendKeys { target: p.pane_id.clone(), keys: vec![Key::Enter] });
+                        }
+                        out
                     }
-                    None => vec![toast("No agent here", "focus a pane with an agent first", Sound::None)],
+                    None => match focused.filter(|p| !p.pane_id.is_empty()) {
+                        Some(p) => {
+                            self.mode = Mode::Interact;
+                            self.interact_pane = Some(p.pane_id.clone());
+                            vec![toast("Interact mode", "D-pad moves; Cross enters; Square selects; Circle returns to Navigate; Create / Share escapes", Sound::None)]
+                        }
+                        None => vec![toast("No pane here", "focus a pane first", Sound::None)],
+                    },
                 },
                 _ => vec![],
             },
             Mode::Respond => self.respond(b, snap),
+            Mode::Interact => {
+                if b == Btn::B {
+                    self.enter_navigate();
+                    return vec![toast("Navigate mode", "", Sound::None)];
+                }
+                let key = if b == Btn::X { Some(Key::Space) } else { key_for(b) };
+                key.map(|key| vec![Action::SendPaneKeys {
+                    target: self.interact_pane.clone().expect("Interact has a validated target"),
+                    keys: vec![key],
+                }]).unwrap_or_default()
+            }
         }
     }
 
-    fn enter_respond(&mut self, agent_pane: Option<&Pane>, acknowledged: bool) {
+    fn enter_respond(&mut self, pane: &Pane) {
         self.mode = Mode::Respond;
-        self.respond_pane = agent_pane.map(|p| p.pane_id.clone());
-        self.acknowledged_block = acknowledged;
+        self.respond_pane = Some(pane.pane_id.clone());
     }
 
     fn enter_navigate(&mut self) {
         self.cancel_close();
         self.mode = Mode::Navigate;
         self.respond_pane = None;
-        self.acknowledged_block = false;
+        self.interact_pane = None;
     }
 
     fn leave_respond(&mut self, actions: Vec<Action>) -> Vec<Action> {
-        if self.mode != Mode::Respond { return actions; }
+        if self.mode == Mode::Navigate { return actions; }
         self.enter_navigate();
         let mut out = vec![toast("Navigate mode", "", Sound::None)];
         out.extend(actions);
@@ -286,7 +303,7 @@ impl Core {
             self.enter_navigate();
             return vec![toast("Navigate mode", "focus moved to another pane", Sound::None)];
         }
-        if b == Btn::View {
+        if b == Btn::B {
             self.enter_navigate();
             return vec![toast("Navigate mode", "", Sound::None)];
         }
@@ -295,16 +312,6 @@ impl Core {
             return vec![toast("Navigate mode", "no agent in the focused pane", Sound::None)];
         };
         let Some(key) = key_for(b) else { return vec![] };
-        // Every Enter needs its own acknowledgement: a key pressed while the agent is Blocked (an arrow, Esc, or
-        // a swallowed A) acknowledges the dialog, and the Enter that answers it spends the acknowledgement. The
-        // core cannot see the status change between two presses, so a second dialog that follows the first in a
-        // quiet gap must not be confirmed by the acknowledgement of the first.
-        let blocked_now = p.status == Some(Status::Blocked);
-        if blocked_now && !self.acknowledged_block && key == Key::Enter {
-            self.acknowledged_block = true;
-            return vec![toast("The agent is waiting", "press the bottom face button again to confirm", Sound::None)];
-        }
-        self.acknowledged_block = blocked_now && key != Key::Enter;
         vec![Action::SendKeys { target: p.pane_id.clone(), keys: vec![key] }]
     }
 }
@@ -313,14 +320,9 @@ impl Core {
 fn key_for(b: Btn) -> Option<Key> {
     Some(match b {
         Btn::Up => Key::Up, Btn::Down => Key::Down, Btn::Left => Key::Left, Btn::Right => Key::Right,
-        Btn::A => Key::Enter, Btn::B => Key::Esc,
+        Btn::A => Key::Enter, Btn::View => Key::Esc,
         _ => return None,
     })
-}
-
-/// The key a D-pad button sends.
-fn key_of(b: Btn) -> Key {
-    match b { Btn::Up => Key::Up, Btn::Down => Key::Down, Btn::Left => Key::Left, _ => Key::Right }
 }
 
 fn dir_of(b: Btn) -> Dir {
