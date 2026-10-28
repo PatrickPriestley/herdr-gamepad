@@ -95,8 +95,6 @@ pub struct Core {
     respond_pane: Option<String>,
     /// Explicitly selected non-agent pane; an agent appearing invalidates this mode.
     interact_pane: Option<String>,
-    /// The user has pressed a key while this pane's agent was Blocked: the next A may answer the dialog.
-    acknowledged_block: bool,
     recording: bool,
     /// A transcription is running; its result decides `voice_target`'s fate.
     transcribing: bool,
@@ -106,7 +104,7 @@ pub struct Core {
 
 impl Core {
     pub fn new(voice_button: Btn) -> Self {
-        Core { close_menu: None, mode: Mode::Navigate, voice_button, respond_pane: None, interact_pane: None, acknowledged_block: false, recording: false, transcribing: false, voice_target: None }
+        Core { close_menu: None, mode: Mode::Navigate, voice_button, respond_pane: None, interact_pane: None, recording: false, transcribing: false, voice_target: None }
     }
     pub fn mode(&self) -> Mode { self.mode }
     #[cfg_attr(not(test), allow(dead_code))]
@@ -139,7 +137,7 @@ impl Core {
             Input::Release(_) => vec![],
             Input::Connected => vec![toast("Controller connected", "", Sound::None)],
             Input::Disconnected => {
-                // Whatever was acknowledged on the old controller does not carry over to the next one.
+                // A disconnected controller leaves every interaction mode.
                 self.enter_navigate();
                 if !self.recording { return vec![toast("Controller disconnected", "", Sound::None)]; }
                 self.recording = false;
@@ -243,11 +241,13 @@ impl Core {
                     .map(|p| vec![Action::FocusDirection { pane_id: p.pane_id.clone(), dir: dir_of(b) }])
                     .unwrap_or_default(),
                 Btn::A => match agent_pane {
-                    Some(_) => {
-                        // Entering on a blocked agent is the acknowledgement; the next A confirms.
-                        self.enter_respond(agent_pane, blocked);
-                        if blocked { vec![toast("Respond mode", "agent waiting; press the bottom face button again to confirm", Sound::None)] }
-                        else { vec![toast("Respond mode", "D-pad moves; Cross confirms; Circle returns to Navigate; Create / Share escapes", Sound::None)] }
+                    Some(p) => {
+                        self.enter_respond(p);
+                        let mut out = vec![toast("Respond mode", "D-pad moves; Cross confirms; Circle returns to Navigate; Create / Share escapes", Sound::None)];
+                        if blocked {
+                            out.push(Action::SendKeys { target: p.pane_id.clone(), keys: vec![Key::Enter] });
+                        }
+                        out
                     }
                     None => match focused.filter(|p| !p.pane_id.is_empty()) {
                         Some(p) => {
@@ -275,10 +275,9 @@ impl Core {
         }
     }
 
-    fn enter_respond(&mut self, agent_pane: Option<&Pane>, acknowledged: bool) {
+    fn enter_respond(&mut self, pane: &Pane) {
         self.mode = Mode::Respond;
-        self.respond_pane = agent_pane.map(|p| p.pane_id.clone());
-        self.acknowledged_block = acknowledged;
+        self.respond_pane = Some(pane.pane_id.clone());
     }
 
     fn enter_navigate(&mut self) {
@@ -286,7 +285,6 @@ impl Core {
         self.mode = Mode::Navigate;
         self.respond_pane = None;
         self.interact_pane = None;
-        self.acknowledged_block = false;
     }
 
     fn leave_respond(&mut self, actions: Vec<Action>) -> Vec<Action> {
@@ -314,16 +312,6 @@ impl Core {
             return vec![toast("Navigate mode", "no agent in the focused pane", Sound::None)];
         };
         let Some(key) = key_for(b) else { return vec![] };
-        // Every Enter needs its own acknowledgement: a key pressed while the agent is Blocked (an arrow, Esc, or
-        // a swallowed A) acknowledges the dialog, and the Enter that answers it spends the acknowledgement. The
-        // core cannot see the status change between two presses, so a second dialog that follows the first in a
-        // quiet gap must not be confirmed by the acknowledgement of the first.
-        let blocked_now = p.status == Some(Status::Blocked);
-        if blocked_now && !self.acknowledged_block && key == Key::Enter {
-            self.acknowledged_block = true;
-            return vec![toast("The agent is waiting", "press the bottom face button again to confirm", Sound::None)];
-        }
-        self.acknowledged_block = blocked_now && key != Key::Enter;
         vec![Action::SendKeys { target: p.pane_id.clone(), keys: vec![key] }]
     }
 }

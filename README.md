@@ -61,7 +61,7 @@ The card also shows your configured voice button.
 
 | Physical control | Xbox | PlayStation | Action |
 |---|---|---|---|
-| Bottom face | A | Cross | Enter Respond / Interact; Enter when inside |
+| Bottom face | A | Cross | Enter Respond / Interact; answer a waiting agent |
 | Right face | B | Circle | Return to Navigate |
 | Left face | X | Square | Toggle zoom; Space in Interact |
 | Top face | Y | Triangle | Next agent needing attention |
@@ -72,8 +72,9 @@ The card also shows your configured voice button.
 | Menu / Options | Menu | Options | Open close actions |
 
 D-pad moves between panes in Navigate, even when an agent is blocked. Press Cross
-(Xbox: A) to enter Respond and move between its options. Each confirmation requires acknowledgement
-first; press Cross (Xbox: A) again to confirm. Face-button positions always determine actions,
+(Xbox: A) to enter Respond and move between its options. If the agent is waiting at
+a question, that first Cross press also sends Enter. In Respond, every Cross press
+sends Enter immediately; no extra confirmation press is required. Face-button positions always determine actions,
 even on controllers with different lettering.
 
 For a non-agent pane such as PR Tracker, press **Cross (Xbox: A)** to enter **Interact**.

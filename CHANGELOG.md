@@ -2,25 +2,21 @@
 
 ## 0.2.0
 
+- Answer a waiting agent with one Cross press from Navigate or Respond.
 - Interact with non-agent panes such as PR Tracker using arrows, Enter, Space, and Escape.
 - Use Cross to enter a pane, Circle to return to navigation, and Share/Create for Escape.
 - Keep D-pad pane navigation available even when an agent is waiting for input.
 - Show familiar PlayStation button names with explicit Xbox equivalents in close controls.
 - Keep close-menu feedback current and bound error notifications to avoid stale popup queues.
-
 - Deliver completed dictation without waiting for another controller button press.
-
 - Add controller close-pane and close-space actions with explicit target confirmation and cancellation.
-
 - Submit dictation automatically to working agents as well as idle/done agents; no extra Enter press.
-
 - Run Gamepad as a Herdr background action with explicit Start and Stop controls.
 - Cancel active voice work and wait for shutdown on Stop.
 - Add on-demand recent logs in an overlay, with bounded log rotation.
 - Keep the mapping overlay on demand; starting no longer opens a daemon tab.
 - Upgrade from v0.1.0 by closing its old Gamepad pane once before starting.
 - Publish stable version tags automatically after both macOS CI jobs pass, with version and tag validation.
-
 
 ## 0.1.0
 

@@ -289,7 +289,7 @@ Closing stops running processes in the pane or space. Focus changes cancel.
 Finish dictation before opening close actions.
 
 D-pad always moves pane focus in Navigate; Cross enters Respond on an agent.
-Each blocked-agent confirmation needs acknowledgement first; press Cross (Xbox: A) again.
+One Cross (Xbox: A) press answers a waiting agent, including from Navigate.
 Routine status updates are in Gamepad logs. Errors are shown at most once per 5 seconds.
 Close actions use a live popup; wait for the selected target to appear before confirming.
 Button positions define the actions, even when your controller uses other labels.
