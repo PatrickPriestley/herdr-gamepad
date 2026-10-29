@@ -159,15 +159,16 @@ impl Backend for SocketBackend {
             return Err("stale_pane_target".into());
         }
         let identity = Binding::read(current)?;
-        if let Some(bound) = &self.binding {
-            if bound != &identity {
-                return Err("Scroll target changed".into());
-            }
-        } else {
-            self.binding = Some(identity.clone());
+        let bound = self.binding.get_or_insert_with(|| identity.clone());
+        // Freeze the route too: detecting a new agent must not turn a held host
+        // scroll gesture into application input. Host history belongs to the terminal.
+        let agent_route =
+            self.agent_pages && matches!(bound.agent.as_deref(), Some("codex" | "claude"));
+        if bound.terminal != identity.terminal || (agent_route && bound != &identity) {
+            return Err("Scroll target changed".into());
         }
         let (offset, max) = scroll_metrics(current)?;
-        if self.agent_pages && matches!(identity.agent.as_deref(), Some("codex" | "claude")) {
+        if agent_route {
             if self.page_due.is_some_and(|due| Instant::now() < due) {
                 return Ok(());
             }
@@ -393,7 +394,10 @@ fn notice(error: &str) -> String {
         || error.contains("unknown variant")
         || error.contains("unknown method")
     {
-        "This Herdr build does not expose terminal scrollback through pane.scroll.".into()
+        format!(
+            "Herdr scrolling API unavailable: {}",
+            error.chars().take(160).collect::<String>()
+        )
     } else if error.contains("stale_pane_target") {
         "Pane focus changed. Center the right stick before scrolling the selected pane.".into()
     } else {

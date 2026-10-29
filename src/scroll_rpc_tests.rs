@@ -254,3 +254,18 @@ fn scroll_rpc_size_limit_is_independent_of_a_delayed_fixture() {
         "expected size limit, got {error}"
     );
 }
+
+#[test]
+fn refused_agent_rpc_names_the_actual_method() {
+    for method in ["agent.get", "agent.send_keys"] {
+        let server = Server::new(|request| {
+            format!(
+                "{}\n",
+                json!({"id":request["id"],"error":{"code":"unknown_method"}})
+            )
+            .into_bytes()
+        });
+        let error = call(&server.path, method, json!({"target":"probe"})).unwrap_err();
+        assert!(error.contains(method), "missing method: {error}");
+    }
+}

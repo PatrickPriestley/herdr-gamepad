@@ -69,7 +69,7 @@ fn exchange(
                 }
                 reply.extend_from_slice(&chunk[..count]);
                 if end.is_some() {
-                    return decode(&reply).map(Some);
+                    return decode(&reply, method).map(Some);
                 }
             }
             Err(e) if retryable(&e) => pause(deadline)?,
@@ -78,14 +78,14 @@ fn exchange(
     }
 }
 
-fn decode(bytes: &[u8]) -> Result<Value, String> {
+fn decode(bytes: &[u8], method: &str) -> Result<Value, String> {
     let value: Value =
         serde_json::from_slice(bytes).map_err(|e| format!("Invalid Herdr reply: {e}"))?;
     if value.get("id").and_then(Value::as_str) != Some(ID) {
         return Err("Herdr reply ID mismatch".into());
     }
     if let Some(error) = value.get("error") {
-        return Err(format!("Herdr refused scroll request: {error}"));
+        return Err(format!("Herdr refused {method}: {error}"));
     }
     value
         .get("result")

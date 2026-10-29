@@ -517,7 +517,11 @@ fn unsupported_and_stale_errors_have_short_specific_notices() {
                 "unknown variant `pane.scroll`, expected {}",
                 "known_method,".repeat(1000)
             ),
-            "This Herdr build does not expose terminal scrollback",
+            "Herdr scrolling API unavailable",
+        ),
+        (
+            "Herdr refused agent.send_keys: unknown_method".into(),
+            "Herdr scrolling API unavailable: Herdr refused agent.send_keys",
         ),
         ("stale_pane_target".into(), "Pane focus changed"),
         ("unavailable".repeat(1000), "Joystick scrolling stopped"),
@@ -1077,4 +1081,54 @@ fn agent_state_cancelled_once_does_not_continue_the_operation() {
         });
     assert_eq!(result, Ok(()));
     assert_eq!(requests.len(), 1);
+}
+
+#[test]
+fn host_gesture_keeps_scrolling_when_agent_metadata_changes() {
+    for (enabled, initial_agent, next_agent) in [
+        (false, "codex", json!(null)),
+        (false, "claude", json!("claude")),
+        (true, "unknown", json!("codex")),
+    ] {
+        let initial = agent_pane(initial_agent, 3, 20);
+        let mut next = initial.clone();
+        next["pane"]["agent"] = next_agent;
+        next["pane"]["agent_session"] = json!({"value":"new-session"});
+        let mut updated = next.clone();
+        updated["pane"]["scroll"]["offset_from_bottom"] = json!(4);
+        let (result, requests) = with_backend(
+            vec![
+                json!({"type":"pane_list","panes":[initial["pane"]]}),
+                next,
+                updated,
+            ],
+            |b| {
+                b.agent_pages = enabled;
+                let target = b.focused()?;
+                b.scroll(&target, 1, &|| true)
+            },
+        );
+        assert_eq!(result, Ok(()));
+        assert_eq!(requests[2]["method"], "pane.scroll");
+        assert_eq!(requests[2]["params"]["offset_from_bottom"], 4);
+    }
+}
+
+#[test]
+fn host_gesture_stops_if_the_terminal_is_replaced() {
+    let initial = pane_reply(3, 20);
+    let mut replaced = initial.clone();
+    replaced["pane"]["terminal_id"] = json!("new-terminal");
+    let (result, requests) = with_backend(
+        vec![
+            json!({"type":"pane_list","panes":[initial["pane"]]}),
+            replaced,
+        ],
+        |b| {
+            let target = b.focused()?;
+            b.scroll(&target, 1, &|| true)
+        },
+    );
+    assert_eq!(result, Err("Scroll target changed".into()));
+    assert_eq!(requests.len(), 2);
 }

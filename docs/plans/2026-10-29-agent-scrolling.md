@@ -14,7 +14,7 @@ Extend draft PR15 with right-stick PageUp/PageDown for Codex and Claude using re
 ## Decisions
 - Add scroll.agent_pages boolean, default false, with a Gamepad Settings toggle labeled experimental. This explicitly selects page-key behavior for known Codex/Claude panes; it never guesses renderer from scroll metrics. Users of classic renderers or custom page bindings leave it off. No new controller button/mode.
 - Settings apply after the existing save-and-close boundary. Changing the setting cancels scrolling and requires neutral, preserving all unrelated settings.
-- Bind terminal ID, agent label and agent-session metadata at gesture start. Validate them on fresh pane.get before each mutation. A different binding stops until neutral. Keep existing single-server focus semantics and document multi-client limitation; do not claim per-client binding.
+- Bind terminal ID, agent label and agent-session metadata at gesture start. Validate them on fresh pane.get before each mutation. Agent-route binding changes stop until neutral. Host scrolling binds only the terminal and keeps its initial route even if agent metadata changes. Keep existing single-server focus semantics and document multi-client limitation; do not claim per-client binding.
 - Agent route requires a matching focused agent.get response, allowed idle/working/done status, and no detection-skipped or launch-pending signal. Missing/malformed required metadata stops. Never toggle viewers, send arrows, Enter or raw mouse sequences.
 - If host offset is nonzero, reset it once with pane.scroll and validate offset0, then recheck agent state before sending the page key. This intentionally returns the host view to the app when agent scrolling is selected.
 - Send exactly one page key per request through agent.send_keys; repeat delays600/450/300ms according to tilt strength, measured from successful response. No queued repeats/retries. Preserve host-row speed and existing100ms worker/expiry semantics.
@@ -35,3 +35,8 @@ Automated socket fixtures prove routing and suppression, not application scrolli
 - Reviewer-readable matching Herdr source is extracted at /tmp/herdr-0.9.1-scroll-review; do not inspect the patched checkout as if it were released.
 - Assertion-red routing, pacing, identity, cancellation and settings tests were recorded before their implementation; socket tests run against disposable Unix sockets. Settings save/close/off-on-off tests and guard mutations are green.
 - This build is an opt-in experimental implementation, not a claim that live-app acceptance has passed. Hardware and actual renderer/custom-binding acceptance remains the explicit draft-PR gate.
+
+## Fable code-review follow-up
+- Reproduced and fixed host-history interruption when agent metadata changes: only agent-input gestures require the full agent/session binding; all gestures retain terminal binding and their starting route.
+- Reproduced and fixed misleading unsupported-method notices: RPC errors include the actual method and notices preserve it with bounded length.
+- The settings-only commit is not being shipped alone; backend wiring is committed in the same feature branch before push.
