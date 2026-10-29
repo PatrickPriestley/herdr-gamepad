@@ -20,6 +20,7 @@ impl Default for Stick {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Intent {
+    pub agent_pages: bool,
     pub epoch: u64,
     pub steps: i8,
     pub expires: Instant,
@@ -51,6 +52,7 @@ impl Stick {
     }
     pub fn intent(&self, now: Instant) -> Option<Intent> {
         self.active.then(|| Intent {
+            agent_pages: false,
             epoch: self.epoch,
             steps: self.axis.signum()
                 * match self.axis.unsigned_abs() {
@@ -70,6 +72,7 @@ use std::thread::{self, JoinHandle};
 
 #[derive(Default)]
 pub(crate) struct Shared {
+    pub agent_pages: bool,
     pub intent: Option<Intent>,
     pub failed: Option<u64>,
     pub last_epoch: Option<u64>,
@@ -90,6 +93,7 @@ pub(crate) struct Pump {
 }
 
 pub(crate) trait Backend {
+    fn set_agent_pages(&mut self, _enabled: bool) {}
     fn focused(&mut self) -> Result<String, String>;
     fn scroll(
         &mut self,
@@ -98,17 +102,24 @@ pub(crate) trait Backend {
         still_current: &dyn Fn() -> bool,
     ) -> Result<(), String>;
 }
+#[derive(Default)]
 pub(crate) struct SocketBackend {
+    pub agent_pages: bool,
+    pub page_due: Option<Instant>,
+    pub binding: Option<Binding>,
     pub path: Option<PathBuf>,
 }
 impl Backend for SocketBackend {
+    fn set_agent_pages(&mut self, enabled: bool) {
+        self.agent_pages = enabled;
+    }
     fn focused(&mut self) -> Result<String, String> {
         let path = self.path.as_ref().ok_or("HERDR_SOCKET_PATH is missing")?;
         let result = crate::scroll_rpc::call(path, "pane.list", json!({}))?;
         if result.get("type").and_then(|v| v.as_str()) != Some("pane_list") {
             return Err("Unexpected pane list response".into());
         }
-        result
+        let pane = result
             .get("panes")
             .and_then(|v| v.as_array())
             .and_then(|panes| {
@@ -116,12 +127,17 @@ impl Backend for SocketBackend {
                     .iter()
                     .find(|pane| pane.get("focused").and_then(|v| v.as_bool()) == Some(true))
             })
-            .and_then(|pane| pane.get("pane_id"))
+            .ok_or("No pane is selected")?;
+        let id = pane
+            .get("pane_id")
             .and_then(|v| v.as_str())
             .filter(|id| !id.is_empty())
-            .map(str::to_owned)
-            .ok_or_else(|| "No pane is selected".into())
+            .ok_or("No pane is selected")?;
+        self.binding = Some(Binding::read(pane)?);
+        self.page_due = None;
+        Ok(id.to_owned())
     }
+
     fn scroll(
         &mut self,
         pane: &str,
@@ -142,7 +158,68 @@ impl Backend for SocketBackend {
         if current.get("focused").and_then(|v| v.as_bool()) != Some(true) {
             return Err("stale_pane_target".into());
         }
+        let identity = Binding::read(current)?;
+        if let Some(bound) = &self.binding {
+            if bound != &identity {
+                return Err("Scroll target changed".into());
+            }
+        } else {
+            self.binding = Some(identity.clone());
+        }
         let (offset, max) = scroll_metrics(current)?;
+        if self.agent_pages && matches!(identity.agent.as_deref(), Some("codex" | "claude")) {
+            if self.page_due.is_some_and(|due| Instant::now() < due) {
+                return Ok(());
+            }
+            if !agent_ready(path, pane, &identity, still_current)? {
+                return Ok(());
+            }
+            if offset != 0 {
+                let Some(reset) = crate::scroll_rpc::call_if_current(
+                    path,
+                    "pane.scroll",
+                    json!({"pane_id":pane,"offset_from_bottom":0}),
+                    still_current,
+                )?
+                else {
+                    return Ok(());
+                };
+                let reset = scroll_pane(&reset, pane)?;
+                if Binding::read(reset)? != identity
+                    || reset.get("focused").and_then(|v| v.as_bool()) != Some(true)
+                {
+                    return Err("Scroll target changed".into());
+                }
+                if scroll_metrics(reset)?.0 != 0 {
+                    return Err("Host scrollback did not return to the application".into());
+                }
+                if !agent_ready(path, pane, &identity, still_current)? {
+                    return Ok(());
+                }
+            }
+            let key = if steps > 0 { "pageup" } else { "pagedown" };
+            let Some(reply) = crate::scroll_rpc::call_if_current(
+                path,
+                "agent.send_keys",
+                json!({"target":pane,"keys":[key]}),
+                still_current,
+            )?
+            else {
+                return Ok(());
+            };
+            if reply.get("type").and_then(|v| v.as_str()) != Some("ok") {
+                return Err("Unexpected agent key response".into());
+            }
+            self.page_due = Some(
+                Instant::now()
+                    + Duration::from_millis(match steps.unsigned_abs() {
+                        3.. => 300,
+                        2 => 450,
+                        _ => 600,
+                    }),
+            );
+            return Ok(());
+        }
         if max == 0 {
             return Err("No terminal scrollback is available in this pane".into());
         }
@@ -167,6 +244,75 @@ impl Backend for SocketBackend {
         scroll_metrics(scroll_pane(&result, pane)?)?;
         Ok(())
     }
+}
+
+/// Freeze the terminal occupant for the lifetime of a gesture, including known session metadata.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Binding {
+    terminal: String,
+    agent: Option<String>,
+    session: serde_json::Value,
+}
+impl Binding {
+    fn read(pane: &serde_json::Value) -> Result<Self, String> {
+        let terminal = pane
+            .get("terminal_id")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .ok_or("Missing scroll terminal identity")?
+            .to_owned();
+        let agent = match pane.get("agent") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(serde_json::Value::String(agent)) => Some(agent.clone()),
+            _ => return Err("Invalid scroll agent identity".into()),
+        };
+        Ok(Self {
+            terminal,
+            agent,
+            session: pane
+                .get("agent_session")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null),
+        })
+    }
+}
+
+fn agent_ready(
+    path: &std::path::Path,
+    pane: &str,
+    identity: &Binding,
+    current: &dyn Fn() -> bool,
+) -> Result<bool, String> {
+    let Some(reply) =
+        crate::scroll_rpc::call_if_current(path, "agent.get", json!({"target":pane}), current)?
+    else {
+        return Ok(false);
+    };
+    if reply.get("type").and_then(|v| v.as_str()) != Some("agent_info") {
+        return Err("Unexpected agent state response".into());
+    }
+    let agent = reply.get("agent").ok_or("Missing agent state")?;
+    if agent.get("pane_id").and_then(|v| v.as_str()) != Some(pane)
+        || agent.get("focused").and_then(|v| v.as_bool()) != Some(true)
+        || Binding::read(agent)? != *identity
+    {
+        return Err("Scroll target changed".into());
+    }
+    let false_or_absent = |field| {
+        matches!(
+            agent.get(field),
+            None | Some(serde_json::Value::Bool(false))
+        )
+    };
+    if !matches!(
+        agent.get("agent_status").and_then(|v| v.as_str()),
+        Some("idle" | "working" | "done")
+    ) || !false_or_absent("screen_detection_skipped")
+        || !false_or_absent("launch_pending")
+    {
+        return Err("Agent scrolling paused: close dialogs and return to the conversation".into());
+    }
+    Ok(true)
 }
 
 fn scroll_pane<'a>(
@@ -222,6 +368,7 @@ impl Pump {
             else {
                 return Ok(());
             };
+            backend.set_agent_pages(latest.agent_pages);
             backend.scroll(
                 self.target.as_deref().expect("focus resolved"),
                 latest.steps,
@@ -276,7 +423,10 @@ impl Worker {
         let path = std::env::var_os("HERDR_SOCKET_PATH").map(PathBuf::from);
         let thread = thread::spawn(move || {
             let mut pump = Pump::default();
-            let mut backend = SocketBackend { path };
+            let mut backend = SocketBackend {
+                path,
+                ..Default::default()
+            };
             loop {
                 if state.lock().expect("scroll state").stopped {
                     break;
@@ -290,13 +440,27 @@ impl Worker {
             thread: Some(thread),
         }
     }
+    pub fn configure_agent_pages(&self, enabled: bool) {
+        let mut state = self.shared.lock().expect("scroll state");
+        if state.agent_pages != enabled {
+            state.agent_pages = enabled;
+            state.failed = state.last_epoch;
+            state.last_epoch = None;
+            state.intent = None;
+            state.notice = None;
+        }
+    }
     /// False means this gesture failed and must be released before retrying.
     pub fn update(&self, intent: Option<Intent>) -> bool {
         let mut state = self.shared.lock().expect("scroll state");
         if intent.is_some_and(|intent| state.failed == Some(intent.epoch)) {
             return false;
         }
-        state.publish(intent);
+        let agent_pages = state.agent_pages;
+        state.publish(intent.map(|mut intent| {
+            intent.agent_pages = agent_pages;
+            intent
+        }));
         true
     }
     pub fn take_notice(&self) -> Option<String> {
@@ -337,11 +501,13 @@ mod worker_tests {
             thread: None,
         };
         let one = Intent {
+            agent_pages: false,
             epoch: 1,
             steps: 1,
             expires: now,
         };
         let two = Intent {
+            agent_pages: false,
             epoch: 2,
             steps: -3,
             expires: now,
@@ -357,5 +523,104 @@ mod worker_tests {
         assert_eq!(last_epoch, Some(2));
         assert!(worker.update(Some(one)));
         assert_eq!(worker.shared.lock().unwrap().intent, Some(one));
+    }
+}
+
+#[cfg(test)]
+mod setting_tests {
+    use super::*;
+    #[test]
+    fn changed_setting_cancels_old_intent_and_requires_a_new_gesture() {
+        let worker = Worker {
+            shared: Arc::new(Mutex::new(Shared::default())),
+            thread: None,
+        };
+        let mut stick = Stick::default();
+        stick.observe(&Input::ScrollAxis(90));
+        let old = stick.intent(Instant::now());
+        assert!(worker.update(old));
+        worker.configure_agent_pages(true);
+        assert!(worker.shared.lock().unwrap().intent.is_none());
+        assert!(!worker.update(old));
+        stick.suppress();
+        stick.observe(&Input::ScrollAxis(90));
+        assert!(stick.intent(Instant::now()).is_none());
+        stick.observe(&Input::ScrollAxis(0));
+        stick.observe(&Input::ScrollAxis(90));
+        assert!(worker.update(stick.intent(Instant::now())));
+        assert!(worker.shared.lock().unwrap().intent.unwrap().agent_pages);
+        worker.configure_agent_pages(true);
+        assert!(
+            worker.shared.lock().unwrap().intent.is_some(),
+            "unchanged preference cancelled gesture"
+        );
+        worker.configure_agent_pages(false);
+        assert!(worker.shared.lock().unwrap().intent.is_none());
+        stick.observe(&Input::ScrollAxis(0));
+        stick.observe(&Input::ScrollAxis(90));
+        assert!(worker.update(stick.intent(Instant::now())));
+        assert!(!worker.shared.lock().unwrap().intent.unwrap().agent_pages);
+    }
+    #[test]
+    fn setting_change_invalidates_inflight_write_and_its_late_error() {
+        let worker = Worker {
+            shared: Arc::new(Mutex::new(Shared::default())),
+            thread: None,
+        };
+        struct Change<'a>(&'a Worker);
+        impl Backend for Change<'_> {
+            fn focused(&mut self) -> Result<String, String> {
+                Ok("pane".into())
+            }
+            fn scroll(&mut self, _: &str, _: i8, current: &dyn Fn() -> bool) -> Result<(), String> {
+                assert!(current());
+                self.0.configure_agent_pages(true);
+                assert!(!current(), "old write permission survived setting change");
+                Err("old failure".into())
+            }
+        }
+        let now = Instant::now();
+        worker.shared.lock().unwrap().notice = Some("old notice".into());
+        worker.update(Some(Intent {
+            epoch: 1,
+            agent_pages: false,
+            steps: 1,
+            expires: now + Duration::from_secs(1),
+        }));
+        Pump::default().tick(&worker.shared, &mut Change(&worker), now);
+        assert!(
+            worker.take_notice().is_none(),
+            "late error survived setting change"
+        );
+    }
+    #[test]
+    fn pump_uses_settings_from_the_current_intent() {
+        struct Capture(Vec<bool>, bool);
+        impl Backend for Capture {
+            fn set_agent_pages(&mut self, v: bool) {
+                self.1 = v;
+            }
+            fn focused(&mut self) -> Result<String, String> {
+                Ok("pane".into())
+            }
+            fn scroll(&mut self, _: &str, _: i8, _: &dyn Fn() -> bool) -> Result<(), String> {
+                self.0.push(self.1);
+                Ok(())
+            }
+        }
+        let now = Instant::now();
+        let state = Mutex::new(Shared::default());
+        let mut pump = Pump::default();
+        let mut backend = Capture(vec![], false);
+        for (epoch, enabled) in [(1, true), (2, false)] {
+            state.lock().unwrap().publish(Some(Intent {
+                epoch,
+                agent_pages: enabled,
+                steps: 1,
+                expires: now + Duration::from_secs(1),
+            }));
+            pump.tick(&state, &mut backend, now);
+        }
+        assert_eq!(backend.0, [true, false]);
     }
 }

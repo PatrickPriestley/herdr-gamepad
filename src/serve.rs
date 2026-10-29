@@ -37,6 +37,7 @@ pub fn serve() -> Result<(), String> {
     while !cancellation.cancelled() {
         core.begin_tick();
         menu.tick(&mut core, &mut cfg);
+        scroll.configure_agent_pages(cfg.agent_pages);
         publish_scrolling(&mut stick, &scroll, menu.is_open() || core.voice_busy());
         if let Some(message) = scroll.take_notice() {
             crate::logging::event(format_args!("herd-gamepad: {message}"));
@@ -53,6 +54,7 @@ pub fn serve() -> Result<(), String> {
             publish_scrolling(&mut stick, &scroll, menu.is_open() || core.voice_busy());
             if is_scroll { continue; }
             if menu.handle(&input, &mut core, &mut cfg) {
+                scroll.configure_agent_pages(cfg.agent_pages);
                 if let Some(message)=menu.take_notice(){feedback.emit(&herdr,&toast("Gamepad actions",&message,Sound::Request));}
                 continue;
             }
@@ -316,7 +318,7 @@ Left / right trigger   LT / RT       L2 / R2
 Back / Select          View          Create (PS5) / Share (PS4)
 Menu                   Menu          Options
 Left / right stick     Stick clicks  L3 / R3
-Right stick up/down    Scroll selected pane terminal history
+Right stick up/down    Scroll pane history (agent pages: Settings opt-in)
 
 NAVIGATE
 D-pad                  Focus a neighbouring pane

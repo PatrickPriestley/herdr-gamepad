@@ -80,6 +80,7 @@ impl Backend for Fake {
 }
 fn desired(epoch: u64, steps: i8, now: Instant) -> Intent {
     Intent {
+        agent_pages: false,
         epoch,
         steps,
         expires: now + Duration::from_millis(100),
@@ -253,7 +254,7 @@ fn repeated_axis_samples_keep_the_gesture_identity() {
 
 fn pane_reply(offset: u64, max: u64) -> serde_json::Value {
     serde_json::json!({"type":"pane_info", "pane":{
-        "pane_id":"selected", "focused":true,
+        "pane_id":"selected", "terminal_id":"terminal1", "focused":true,
         "scroll":{"offset_from_bottom":offset,"max_offset_from_bottom":max,"viewport_rows":24}
     }})
 }
@@ -317,6 +318,7 @@ fn with_backend<R>(
     });
     let answer = run(&mut SocketBackend {
         path: Some(path.clone()),
+        ..Default::default()
     });
     stopped.store(true, Ordering::SeqCst);
     let requests = thread.join().unwrap();
@@ -328,7 +330,7 @@ fn with_backend<R>(
 fn socket_backend_binds_only_the_selected_pane() {
     let (result, requests) = with_backend(
         vec![serde_json::json!({"type":"pane_list", "panes":[
-            {"pane_id":"background","focused":false},{"pane_id":"selected","focused":true}
+            {"pane_id":"background","focused":false},{"pane_id":"selected","terminal_id":"terminal1","focused":true}
         ]})],
         |backend| backend.focused(),
     );
@@ -479,6 +481,7 @@ fn cancelled_gesture_before_read_or_after_lookup_sends_no_update() {
     use std::cell::Cell;
     let mut backend = SocketBackend {
         path: Some("/nonexistent/cancelled-scrollback".into()),
+        ..Default::default()
     };
     assert_eq!(backend.scroll("selected", 1, &|| false), Ok(()));
     let calls = Cell::new(0);
@@ -495,7 +498,10 @@ fn cancelled_gesture_before_read_or_after_lookup_sends_no_update() {
 
 #[test]
 fn missing_socket_configuration_is_an_action_local_error() {
-    let mut backend = SocketBackend { path: None };
+    let mut backend = SocketBackend {
+        path: None,
+        ..Default::default()
+    };
     assert!(backend.focused().unwrap_err().contains("HERDR_SOCKET_PATH"));
     assert!(backend
         .scroll("pane", 1, &|| true)
@@ -539,6 +545,7 @@ fn expired_gesture_does_not_even_query_focus() {
     let state = Mutex::new(Shared {
         last_epoch: Some(1),
         intent: Some(Intent {
+            agent_pages: false,
             epoch: 1,
             steps: 1,
             expires: now,
@@ -580,6 +587,7 @@ fn backend_reply(result: serde_json::Value, focused: bool) -> Result<String, Str
     });
     let mut backend = SocketBackend {
         path: Some(path.clone()),
+        ..Default::default()
     };
     let answer = if focused {
         backend.focused()
@@ -688,6 +696,385 @@ fn backend_recheck_rejects_a_successor_gesture_and_socket_skips_cancelled_connec
     assert!(backend.2);
     let mut backend = SocketBackend {
         path: Some("/nonexistent/gamepad-cancelled.sock".into()),
+        ..Default::default()
     };
     assert!(backend.scroll("pane", 1, &|| false).is_ok());
+}
+
+fn agent_pane(agent: &str, offset: u64, max: u64) -> serde_json::Value {
+    let mut result = pane_reply(offset, max);
+    result["pane"]["agent"] = json!(agent);
+    result["pane"]["agent_session"] = json!({"value":"session1"});
+    result
+}
+fn agent_reply(agent: &str) -> serde_json::Value {
+    json!({"type":"agent_info", "agent":{
+        "pane_id":"selected", "terminal_id":"terminal1", "agent":agent,
+        "agent_session":{"value":"session1"},
+        "focused":true, "agent_status":"working"
+    }})
+}
+use serde_json::json;
+
+#[test]
+fn agent_pages_sends_one_page_key_for_each_supported_agent_and_direction() {
+    for agent in ["codex", "claude"] {
+        for (steps, key) in [(3, "pageup"), (-3, "pagedown")] {
+            let (result, requests) = with_backend(
+                vec![
+                    agent_pane(agent, 0, 0),
+                    agent_reply(agent),
+                    json!({"type":"ok"}),
+                ],
+                |b| {
+                    b.set_agent_pages(true);
+                    b.scroll("selected", steps, &|| true)
+                },
+            );
+            assert_eq!(result, Ok(()));
+            assert_eq!(
+                requests
+                    .iter()
+                    .map(|r| r["method"].as_str().unwrap())
+                    .collect::<Vec<_>>(),
+                ["pane.get", "agent.get", "agent.send_keys"]
+            );
+            assert_eq!(
+                requests[2]["params"],
+                json!({"target":"selected","keys":[key]})
+            );
+        }
+    }
+}
+
+#[test]
+fn agent_pages_opt_in_does_not_guess_renderer_from_metrics() {
+    let (result, requests) = with_backend(
+        vec![
+            agent_pane("codex", 0, 99),
+            agent_reply("codex"),
+            json!({"type":"ok"}),
+        ],
+        |b| {
+            b.agent_pages = true;
+            b.scroll("selected", 1, &|| true)
+        },
+    );
+    assert_eq!(result, Ok(()));
+    assert_eq!(requests.last().unwrap()["method"], "agent.send_keys");
+    for (enabled, agent) in [(false, "codex"), (true, "unknown")] {
+        let (result, requests) = with_backend(
+            vec![agent_pane(agent, 0, 99), agent_pane(agent, 1, 99)],
+            |b| {
+                b.agent_pages = enabled;
+                b.scroll("selected", 1, &|| true)
+            },
+        );
+        assert_eq!(result, Ok(()));
+        assert_eq!(requests.last().unwrap()["method"], "pane.scroll");
+    }
+}
+
+#[test]
+fn agent_pages_reset_host_offset_then_recheck_agent_before_input() {
+    let (result, requests) = with_backend(
+        vec![
+            agent_pane("codex", 4, 20),
+            agent_reply("codex"),
+            agent_pane("codex", 0, 20),
+            agent_reply("codex"),
+            json!({"type":"ok"}),
+        ],
+        |b| {
+            b.agent_pages = true;
+            b.scroll("selected", 1, &|| true)
+        },
+    );
+    assert_eq!(result, Ok(()));
+    assert_eq!(
+        requests
+            .iter()
+            .map(|r| r["method"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        [
+            "pane.get",
+            "agent.get",
+            "pane.scroll",
+            "agent.get",
+            "agent.send_keys"
+        ]
+    );
+    assert_eq!(requests[2]["params"]["offset_from_bottom"], 0);
+}
+
+#[test]
+fn agent_pages_refuses_uncertain_agent_states_and_bad_identity() {
+    let cases = [
+        ("agent_status", json!("blocked")),
+        ("agent_status", json!("unknown")),
+        ("agent_status", json!(null)),
+        ("screen_detection_skipped", json!(true)),
+        ("screen_detection_skipped", json!("false")),
+        ("launch_pending", json!(true)),
+        ("launch_pending", json!("false")),
+        ("focused", json!(false)),
+        ("pane_id", json!("other")),
+        ("terminal_id", json!("other")),
+        ("agent", json!("claude")),
+        ("agent_session", json!({"value":"session2"})),
+    ];
+    for (field, value) in cases {
+        let mut agent = agent_reply("codex");
+        agent["agent"][field] = value;
+        let (result, requests) = with_backend(vec![agent_pane("codex", 0, 0), agent], |b| {
+            b.agent_pages = true;
+            b.scroll("selected", 1, &|| true)
+        });
+        assert!(result.is_err(), "accepted {field}");
+        assert_eq!(requests.len(), 2, "did not inspect agent for {field}");
+        assert_eq!(requests[1]["method"], "agent.get");
+    }
+}
+
+#[test]
+fn agent_pages_require_ok_response_and_do_not_fallback() {
+    let (result, requests) = with_backend(
+        vec![
+            agent_pane("codex", 0, 0),
+            agent_reply("codex"),
+            json!({"type":"pane_info"}),
+        ],
+        |b| {
+            b.agent_pages = true;
+            b.scroll("selected", 1, &|| true)
+        },
+    );
+    assert!(result
+        .unwrap_err()
+        .contains("Unexpected agent key response"));
+    assert_eq!(requests.len(), 3);
+}
+
+#[test]
+fn agent_pages_paces_single_pages_and_can_resume_after_deadline() {
+    for (steps, delay) in [(1, 600), (2, 450), (3, 300)] {
+        let (result, requests) = with_backend(
+            vec![
+                agent_pane("codex", 0, 0),
+                agent_reply("codex"),
+                json!({"type":"ok"}),
+                agent_pane("codex", 0, 0),
+                agent_pane("codex", 0, 0),
+                agent_reply("codex"),
+                json!({"type":"ok"}),
+            ],
+            |b| {
+                b.agent_pages = true;
+                let start = Instant::now();
+                b.scroll("selected", steps, &|| true)?;
+                assert!(b.page_due.unwrap() >= start + Duration::from_millis(delay));
+                assert!(b.page_due.unwrap() <= Instant::now() + Duration::from_millis(delay));
+                b.scroll("selected", steps, &|| true)?;
+                b.page_due = Some(Instant::now() - Duration::from_millis(1));
+                b.scroll("selected", -steps, &|| true)
+            },
+        );
+        assert_eq!(result, Ok(()));
+        assert_eq!(requests.len(), 7);
+        assert_eq!(requests[6]["params"]["keys"], json!(["pagedown"]));
+    }
+}
+
+#[test]
+fn agent_pages_binds_identity_from_initial_focus_and_never_retargets() {
+    for (field, value) in [
+        ("terminal_id", json!("terminal2")),
+        ("agent", json!("claude")),
+        ("agent_session", json!({"value":"session2"})),
+    ] {
+        let initial = agent_pane("codex", 0, 0);
+        let mut changed = initial.clone();
+        changed["pane"][field] = value;
+        let (result, requests) = with_backend(
+            vec![
+                json!({"type":"pane_list","panes":[initial["pane"]]}),
+                changed,
+            ],
+            |b| {
+                b.agent_pages = true;
+                let pane = b.focused()?;
+                b.scroll(&pane, 1, &|| true)
+            },
+        );
+        assert!(
+            result.unwrap_err().contains("Scroll target changed"),
+            "did not reject {field}"
+        );
+        assert_eq!(requests.len(), 2);
+    }
+}
+
+#[test]
+fn agent_pages_cancellation_between_reads_and_each_mutation_stops_dispatch() {
+    use std::cell::Cell;
+    for allowed in [2, 4, 6, 8] {
+        let checks = Cell::new(0);
+        let (result, requests) = with_backend(
+            vec![
+                agent_pane("codex", 3, 20),
+                agent_reply("codex"),
+                agent_pane("codex", 0, 20),
+                agent_reply("codex"),
+            ],
+            |b| {
+                b.agent_pages = true;
+                b.scroll("selected", 1, &|| {
+                    checks.set(checks.get() + 1);
+                    checks.get() <= allowed
+                })
+            },
+        );
+        assert_eq!(result, Ok(()));
+        assert_eq!(requests.len(), allowed / 2);
+        assert!(!requests.iter().any(|r| r["method"] == "agent.send_keys"));
+    }
+}
+
+#[test]
+fn agent_pages_accepts_idle_done_and_explicit_false_flags() {
+    for status in ["idle", "done"] {
+        let mut agent = agent_reply("claude");
+        agent["agent"]["agent_status"] = json!(status);
+        agent["agent"]["screen_detection_skipped"] = json!(false);
+        agent["agent"]["launch_pending"] = json!(false);
+        let (result, requests) = with_backend(
+            vec![agent_pane("claude", 0, 0), agent, json!({"type":"ok"})],
+            |b| {
+                b.agent_pages = true;
+                b.scroll("selected", 1, &|| true)
+            },
+        );
+        assert_eq!(result, Ok(()));
+        assert_eq!(requests.len(), 3);
+    }
+}
+
+#[test]
+fn agent_pages_refuses_malformed_state_and_reset_that_did_not_restore_live_view() {
+    let mut wrong_type = agent_reply("codex");
+    wrong_type["type"] = json!("wrong");
+    for agent in [
+        wrong_type,
+        json!({"type":"wrong"}),
+        json!({"type":"agent_info"}),
+        json!({"type":"agent_info","agent":{}}),
+    ] {
+        let (result, requests) = with_backend(vec![agent_pane("codex", 0, 0), agent], |b| {
+            b.agent_pages = true;
+            b.scroll("selected", 1, &|| true)
+        });
+        assert!(result.is_err());
+        assert_eq!(requests.len(), 2);
+    }
+    for (field, value) in [
+        ("focused", json!(false)),
+        ("terminal_id", json!("new")),
+        ("agent", json!("claude")),
+        (
+            "scroll",
+            json!({"offset_from_bottom":1,"max_offset_from_bottom":20}),
+        ),
+        ("scroll", json!(null)),
+    ] {
+        let mut reset = agent_pane("codex", 0, 20);
+        reset["pane"][field] = value;
+        let (result, requests) = with_backend(
+            vec![agent_pane("codex", 2, 20), agent_reply("codex"), reset],
+            |b| {
+                b.agent_pages = true;
+                b.scroll("selected", 1, &|| true)
+            },
+        );
+        assert!(result.is_err(), "accepted {field}");
+        assert_eq!(requests.len(), 3);
+    }
+    let mut blocked = agent_reply("codex");
+    blocked["agent"]["agent_status"] = json!("blocked");
+    let (result, requests) = with_backend(
+        vec![
+            agent_pane("codex", 2, 20),
+            agent_reply("codex"),
+            agent_pane("codex", 0, 20),
+            blocked,
+        ],
+        |b| {
+            b.agent_pages = true;
+            b.scroll("selected", 1, &|| true)
+        },
+    );
+    assert!(result.is_err());
+    assert_eq!(requests.len(), 4);
+}
+
+#[test]
+fn scroll_binding_requires_valid_terminal_identity_and_agent_label() {
+    for (field, value) in [
+        ("terminal_id", json!(null)),
+        ("terminal_id", json!("")),
+        ("terminal_id", json!(123)),
+        ("agent", json!(false)),
+    ] {
+        let mut pane = agent_pane("codex", 0, 20);
+        pane["pane"][field] = value;
+        let (result, requests) = with_backend(vec![pane], |b| {
+            b.agent_pages = true;
+            b.scroll("selected", 1, &|| true)
+        });
+        assert!(result.is_err());
+        assert_eq!(requests.len(), 1);
+    }
+}
+
+#[test]
+fn new_gesture_resets_page_cadence_and_binding() {
+    let codex = agent_pane("codex", 0, 0);
+    let claude = agent_pane("claude", 0, 0);
+    let (result, requests) = with_backend(
+        vec![
+            json!({"type":"pane_list","panes":[codex["pane"]]}),
+            codex.clone(),
+            agent_reply("codex"),
+            json!({"type":"ok"}),
+            json!({"type":"pane_list","panes":[claude["pane"]]}),
+            claude,
+            agent_reply("claude"),
+            json!({"type":"ok"}),
+        ],
+        |b| {
+            b.agent_pages = true;
+            let first = b.focused()?;
+            b.scroll(&first, 1, &|| true)?;
+            let next = b.focused()?;
+            b.scroll(&next, -1, &|| true)
+        },
+    );
+    assert_eq!(result, Ok(()));
+    assert_eq!(requests.len(), 8);
+    assert_eq!(requests[7]["params"]["keys"], json!(["pagedown"]));
+}
+
+#[test]
+fn agent_state_cancelled_once_does_not_continue_the_operation() {
+    use std::cell::Cell;
+    let checks = Cell::new(0);
+    let (result, requests) =
+        with_backend(vec![agent_pane("codex", 0, 0), json!({"type":"ok"})], |b| {
+            b.agent_pages = true;
+            b.scroll("selected", 1, &|| {
+                checks.set(checks.get() + 1);
+                checks.get() != 3
+            })
+        });
+    assert_eq!(result, Ok(()));
+    assert_eq!(requests.len(), 1);
 }

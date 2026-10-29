@@ -104,23 +104,42 @@ Routine status goes to the log ("Gamepad: show logs"); only errors appear as not
 | Back | View | Create | | Escape | Escape | Close |
 | Menu | Menu | Options | Actions menu | Actions menu | Actions menu | Close |
 | Right stick click | | R3 | Hold to dictate | Hold to dictate | Hold to dictate | |
-| Right stick up/down | | | Scroll terminal history | Scroll terminal history | Scroll terminal history | |
+| Right stick up/down | | | Scroll pane history | Scroll pane history | Scroll pane history | |
 
 If the voice button is set to Options, L3 opens the actions menu.
 
-**Joystick scrolling uses the existing Herdr `pane.scroll` API, available in the
-probed Herdr 0.9.1 build. No custom Herdr patch is required.**
+**Joystick scrolling uses released Herdr APIs, probed on Herdr 0.9.1.
+No custom Herdr patch is required.**
 
-Tilt the right stick up/down to scroll the selected pane's terminal history,
-including when expanded. A stronger tilt scrolls faster. This controls terminal
-scrollback only: an application's own internal list or transcript may not be
-available as terminal history. A pane with no history reports that limitation;
-the plugin does not send wheel events, PageUp, arrow keys or text as a fallback.
+Tilt the right stick up/down to scroll the selected pane, including when expanded.
+By default this scrolls terminal history; stronger tilt moves more rows.
 
-Scrolling pauses during dictation and gamepad menus. After a button press,
-focus change or error, return a tilted stick to the center before scrolling
-again. Each gesture stays bound to its original pane and checks focus before
-updating. An update already in progress may finish on the previous pane after
+For **Codex or Claude fullscreen conversations**, open **Gamepad actions → Settings**,
+turn **Agent scrolling (experimental)** on, save, and close the menu. The stick then
+sends one Page Up/Down press at a time through Herdr's agent API: gentle tilt repeats
+about every 600 ms, full tilt about every 300 ms. Other panes keep terminal-history
+scrolling. Turn it off the same way to restore terminal-history scrolling everywhere.
+The optional file setting defaults to false:
+
+```toml
+[scroll]
+agent_pages = true
+```
+
+Agent scrolling requires the application's page keys to scroll its conversation.
+Classic renderers and custom keybindings may behave differently; leave it off there.
+Detected dialogs, uncertain agent state, and changes of pane or agent stop the gesture.
+Detection is best-effort: an undetected dialog or a change between checking and sending
+can still receive a page key. No arrows, Enter, mouse bytes, or automatic viewer toggles
+are sent. If the host view was scrolled up, agent scrolling first returns it to the
+live application. These app-specific controls remain experimental pending hardware
+validation in Codex 0.165.0 and Claude Code 2.1.287.
+
+Right-stick click still records dictation. Buttons, menus, dictation, disconnects,
+setting changes and errors stop scrolling; return the stick to center before retrying.
+Targeting uses Herdr's server-wide selected pane: do not use this with multiple clients
+independently navigating the same server. A held gesture never switches to another pane.
+An update already in progress may finish on the previous pane after
 a focus change; the API does not make the focus check and update atomic.
 Pending repeats are discarded. The left stick and horizontal movement are unchanged.
 

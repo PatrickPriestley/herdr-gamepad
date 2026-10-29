@@ -1389,7 +1389,7 @@ impl Menu {
                         style.button(Btn::A)
                     ),
                     format!("Preview / Respond: {} clears input line (Codex / Claude)", style.button(Btn::X)),
-                    "Right stick up/down: scroll terminal history".into(),
+                    "Right stick: terminal history; agent pages via Settings".into(),
                     "Center the stick after buttons, menus or dictation".into(),
                     "Opening the menu returns to Navigate mode".into(),
                 ]

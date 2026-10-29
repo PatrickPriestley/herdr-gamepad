@@ -29,3 +29,9 @@ Extend draft PR15 with right-stick PageUp/PageDown for Codex and Claude using re
 
 ## Acceptance limits
 Automated socket fixtures prove routing and suppression, not application scrolling. Manual acceptance must cover installed Codex0.165.0 and Claude2.1.287 with long history, nonempty multiline draft, both directions, generation, modals/custom bindings, expanded panes, focus changes, app exit/replacement, nonzero host offset and setting off-on-off. Verify visible history movement AND unchanged draft/no submission. Keep draft until this passes; no synthetic input to existing user panes. Multiple attached clients sharing server-global focus are not supported for reliable local-controller targeting.
+
+## Implementation evidence
+- Read-only live agent.get probe confirmed agent_info shape, focused/status/terminal identity, omitted false flags, and consistent absent session metadata. No input was sent to a live pane.
+- Reviewer-readable matching Herdr source is extracted at /tmp/herdr-0.9.1-scroll-review; do not inspect the patched checkout as if it were released.
+- Assertion-red routing, pacing, identity, cancellation and settings tests were recorded before their implementation; socket tests run against disposable Unix sockets. Settings save/close/off-on-off tests and guard mutations are green.
+- This build is an opt-in experimental implementation, not a claim that live-app acceptance has passed. Hardware and actual renderer/custom-binding acceptance remains the explicit draft-PR gate.
