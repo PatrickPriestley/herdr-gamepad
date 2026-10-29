@@ -19,3 +19,9 @@ Do not use Ctrl+C (can interrupt/exit on empty input), Escape (can dismiss/rewin
 ## Validation
 
 Assertion-red tests for staged and Respond clear, original target checks, unsupported/blocked states, repeated/busy/fresh presses, Navigate zoom and Interact preservation, bridge argv/validation, and no false success toast on failure. Probe actual CLI key arguments through a fake socket; no input to live agents. Mutation-check new guards, full suite/source build, independent different-family review before push. Install for manual controller testing.
+
+## Implementation evidence
+
+The installed Herdr CLI was run against a temporary fake Unix socket with its real ping handshake. Captured request: `agent.send_keys` with `keys: ["ctrl+a", "ctrl+k"]`; no live pane received input. Seven pure Core tests and the bridge/dispatch regressions failed on assertions before their fixes. 328 unit tests and four integration tests pass, one opt-in live test is ignored; all 24 new guard/dispatch mutations were caught (20 Core, four bridge/dispatch). Source build and whitespace checks pass. Controller/microphone acceptance remains manual.
+
+Independent GLM review completed with `<<AGENT-REVIEW-END>>` and no important correctness/safety findings. It independently ran the suite. Minor accepted notes: a pre-dispatch refusal is worded "Clear unconfirmed"; a dispatched clear returns to Navigate even on failure, so retry through Respond. No automatic replacement or arbitrary multiline clear was added.

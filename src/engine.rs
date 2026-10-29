@@ -69,6 +69,7 @@ pub enum Action {
     Prompt { target: String, text: String },
     InsertText { target: Pane, text: String },
     SubmitText { target: Pane },
+    ClearInput { target: Pane },
     Toast { title: String, body: String, sound: Sound },
     StartRecording,
     StopRecording,
@@ -89,6 +90,7 @@ pub struct Core {
     voice_button: Btn,
     /// The pane Respond was entered on; a press with another pane focused leaves Respond instead of answering.
     respond_pane: Option<String>,
+    respond_target: Option<Pane>,
     /// Explicitly selected non-agent pane; an agent appearing invalidates this mode.
     interact_pane: Option<String>,
     recording: bool,
@@ -102,13 +104,14 @@ pub struct Core {
     pending_insert: Option<Pane>,
     staged: Option<Pane>,
     submit_held: bool,
+    clear_held: bool,
     pending_submit: Option<Pane>,
     fresh_insert: bool,
 }
 
 impl Core {
     pub fn new(voice_button: Btn) -> Self {
-        Core { mode: Mode::Navigate, voice_button, respond_pane: None, interact_pane: None, recording: false, transcribing: false, voice_target: None, voice_pane: None, preview_enabled: false, recording_preview: false, pending_insert: None, staged: None, submit_held: false, pending_submit: None, fresh_insert: false }
+        Core { mode: Mode::Navigate, voice_button, respond_pane: None, respond_target: None, interact_pane: None, recording: false, transcribing: false, voice_target: None, voice_pane: None, preview_enabled: false, recording_preview: false, pending_insert: None, staged: None, submit_held: false, clear_held: false, pending_submit: None, fresh_insert: false }
     }
     pub fn begin_tick(&mut self) {self.fresh_insert=false;}
     pub fn submission_result(&mut self, target: Pane, refusal: Option<String>) -> Vec<Action> {
@@ -129,7 +132,7 @@ impl Core {
                 self.staged=Some(target);
                 self.fresh_insert=true;
                 self.enter_navigate();
-                vec![toast("Voice text inserted", "Review in the agent input; Cross sends", Sound::None)]
+                vec![toast("Voice text inserted", "Review in the agent input; Cross sends; Square clears line", Sound::None)]
             }
             Err(error) => vec![toast("Voice insertion unconfirmed", &error, Sound::Request)],
         }
@@ -141,9 +144,9 @@ impl Core {
     pub fn preview_in_progress(&self) -> bool { self.recording_preview }
     pub fn mode(&self) -> Mode { self.mode }
     pub fn voice_busy(&self)->bool {self.recording||self.transcribing}
-    pub fn snapshot_failed(&mut self){self.enter_navigate();self.submit_held=false;}
+    pub fn snapshot_failed(&mut self){self.enter_navigate();self.submit_held=false;self.clear_held=false;}
     // Menus own button releases while open, so they must also release Core's submit latch.
-    pub fn menu_exit(&mut self){self.enter_navigate();self.submit_held=false;self.disarm_native_submit();}
+    pub fn menu_exit(&mut self){self.enter_navigate();self.submit_held=false;self.clear_held=false;self.disarm_native_submit();}
     pub fn rebind(&mut self,button:Btn){self.voice_button=button;}
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn recording(&self) -> bool { self.recording }
@@ -167,10 +170,12 @@ impl Core {
             }
             Input::Press(b) => self.press(b, snap),
             Input::Release(Btn::A) => { self.submit_held=false; vec![] },
+            Input::Release(Btn::X) => { self.clear_held=false; vec![] },
             Input::Release(_) => vec![],
             Input::Connected => vec![toast("Controller connected", "", Sound::None)],
             Input::Disconnected => {
                 self.submit_held=false;
+                self.clear_held=false;
                 self.disarm_native_submit();
                 // A disconnected controller leaves every interaction mode.
                 self.enter_navigate();
@@ -204,7 +209,23 @@ impl Core {
         }
     }
 
+    fn clear_input(&mut self, target: Pane, snap: &Snapshot) -> Vec<Action> {
+        self.clear_held=true;
+        if self.fresh_insert {return vec![];}
+        if self.voice_busy() {return vec![toast("Still recording or transcribing", "Wait before clearing", Sound::None)];}
+        if let Err(error)=crate::dictation::validate_clear_target(&target,snap) {
+            return vec![toast("Input not cleared", &error, Sound::Request)];
+        }
+        self.disarm_native_submit();
+        self.enter_navigate();
+        vec![Action::ClearInput {target}]
+    }
+
     fn press(&mut self, b: Btn, snap: &Snapshot) -> Vec<Action> {
+        if b == Btn::X {
+            if self.clear_held {return vec![];}
+            if let Some(target)=self.staged.clone() {return self.clear_input(target,snap);}
+        }
         if b == Btn::A {
             if self.submit_held { return vec![]; }
             if let Some(target)=self.staged.as_ref() {
@@ -243,7 +264,7 @@ impl Core {
             Btn::Lt => Some(step_tab(snap, -1)),
             Btn::Rt => Some(step_tab(snap, 1)),
             Btn::Y => Some(next_attention(snap)),
-            Btn::X if self.mode != Mode::Interact => Some(focused.map(|p| vec![Action::ToggleZoom(p.pane_id.clone())]).unwrap_or_default()),
+            Btn::X if self.mode == Mode::Navigate => Some(focused.map(|p| vec![Action::ToggleZoom(p.pane_id.clone())]).unwrap_or_default()),
             _ => None,
         };
         if let Some(actions) = nav { return self.leave_respond(actions); }
@@ -256,7 +277,7 @@ impl Core {
                 Btn::A => match agent_pane {
                     Some(p) => {
                         self.enter_respond(p);
-                        let mut out = vec![toast("Respond mode", "D-pad moves; Cross confirms; Circle returns to Navigate; Create / Share escapes", Sound::None)];
+                        let mut out = vec![toast("Respond mode", "D-pad moves; Cross confirms; Square clears input line (Codex/Claude); Circle returns to Navigate; Create / Share escapes", Sound::None)];
                         if blocked {
                             out.push(Action::SendKeys { target: p.pane_id.clone(), keys: vec![Key::Enter] });
                         }
@@ -291,11 +312,13 @@ impl Core {
     fn enter_respond(&mut self, pane: &Pane) {
         self.mode = Mode::Respond;
         self.respond_pane = Some(pane.pane_id.clone());
+        self.respond_target = Some(pane.clone());
     }
 
     fn enter_navigate(&mut self) {
         self.mode = Mode::Navigate;
         self.respond_pane = None;
+        self.respond_target = None;
         self.interact_pane = None;
     }
 
@@ -323,6 +346,9 @@ impl Core {
             self.enter_navigate();
             return vec![toast("Navigate mode", "no agent in the focused pane", Sound::None)];
         };
+        if b == Btn::X {
+            return self.clear_input(self.respond_target.clone().expect("Respond captures its agent target"),snap);
+        }
         let Some(key) = key_for(b) else { return vec![] };
         vec![Action::SendKeys { target: p.pane_id.clone(), keys: vec![key] }]
     }

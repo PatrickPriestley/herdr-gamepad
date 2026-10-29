@@ -21,3 +21,11 @@ pub fn native_text(text: &str) -> String {
     }).collect();
     safe.split_whitespace().collect::<Vec<_>>().join(" ")
 }
+
+pub fn validate_clear_target(target: &Pane, snap: &Snapshot) -> Result<(), String> {
+    validate_target(target,snap)?;
+    if !matches!(target.agent.as_deref(),Some("codex"|"claude")) {
+        return Err("Clear input supports Codex and Claude with standard editor shortcuts".into());
+    }
+    Ok(())
+}

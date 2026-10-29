@@ -360,3 +360,33 @@ fn native_preview_cli_passes_only_the_transcript_as_text() {
             vec!["herdr","pane","send-text",&target.pane_id,text]);
     }
 }
+
+#[test]
+fn clear_native_line_uses_only_editor_keys_after_target_validation() {
+    for kind in ["claude","codex"] {
+        let pane=PANE_CURRENT.replace("claude",kind);
+        let response: &'static str=Box::leak(pane.into_boxed_str());
+        let target=Herdr{runner:Fake::new(vec![("herdr pane list",Ok(response))])}.focused_snapshot().unwrap().focused.unwrap();
+        let f=Fake::new(vec![("herdr pane list",Ok(response)),("herdr agent send-keys",Ok("{}"))]);
+        Herdr{runner:&f}.apply(&Action::ClearInput{target}).unwrap();
+        assert_eq!(f.calls(),["herdr pane list","herdr agent send-keys w1M:p1 ctrl+a ctrl+k"]);
+    }
+}
+#[test]
+fn clear_native_line_refuses_changed_blocked_or_unsupported_agents() {
+    let original=Herdr{runner:fake()}.focused_snapshot().unwrap().focused.unwrap();
+    for variant in 0..5 {
+        let mut target=original.clone();
+        let response=match variant {
+            0=>PANE_CURRENT_SHELL.to_string(),
+            1=>PANE_CURRENT.replace("working","blocked"),
+            2=>PANE_CURRENT.replace("claude","codex"),
+            3=>{target.agent=Some("other".into());PANE_CURRENT.replace("claude","other")},
+            _=>PANE_CURRENT.replace("w1M:p1","other-pane"),
+        };
+        let response: &'static str=Box::leak(response.into_boxed_str());
+        let f=Fake::new(vec![("herdr pane list",Ok(response))]);
+        assert!(Herdr{runner:&f}.apply(&Action::ClearInput{target}).is_err());
+        assert_eq!(f.calls(),["herdr pane list"]);
+    }
+}

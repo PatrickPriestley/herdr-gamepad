@@ -1380,6 +1380,7 @@ impl Menu {
                         style.button(Btn::Y),
                         style.button(Btn::A)
                     ),
+                    format!("Preview / Respond: {} clears input line (Codex / Claude)", style.button(Btn::X)),
                     "Opening the menu returns to Navigate mode".into(),
                 ]
             }

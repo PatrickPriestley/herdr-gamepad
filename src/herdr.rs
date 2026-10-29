@@ -140,6 +140,9 @@ impl<R: Runner> Herdr<R> {
         if let Action::SubmitText {target} = action {
             return self.submit_native(target).map_err(|e|match e {NativeSubmitError::Refused(e)|NativeSubmitError::Unconfirmed(e)=>e});
         }
+        if let Action::ClearInput {target} = action {
+            crate::dictation::validate_clear_target(target,&self.focused_snapshot()?)?;
+        }
         if let Action::InsertText { target, .. } = action {
             crate::dictation::validate_target(target, &self.focused_snapshot()?)?;
         }
@@ -235,6 +238,7 @@ pub fn argv_for(a: &Action) -> Vec<String> {
             v.extend(keys.iter().map(|k| key_name(*k).to_string()));
             v
         }
+        Action::ClearInput {target} => s(&["herdr", "agent", "send-keys", &target.pane_id, "ctrl+a", "ctrl+k"]),
         Action::InsertText { target, text } => s(&["herdr", "pane", "send-text", &target.pane_id, text]),
         Action::SubmitText { target } => s(&["herdr", "agent", "send-keys", &target.pane_id, "enter"]),
         Action::Prompt { target, text } => s(&["herdr", "agent", "prompt", target, text]),

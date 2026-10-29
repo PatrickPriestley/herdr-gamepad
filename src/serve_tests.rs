@@ -169,7 +169,7 @@ fn a_tick_keeps_button_order_after_ready_voice_results() {
 fn mapping_button_descriptions_align_with_navigation_rows() {
     let labels = ["Triangle (Xbox: Y)", "Square (Xbox: X)", "Cross (Xbox: A)", "Circle (Xbox: B)", "Create / Share (View)"];
     let rows: Vec<_> = MAPPING.lines().filter(|line| labels.iter().any(|label| line.starts_with(label))).collect();
-    assert_eq!(rows.len(), 14);
+    assert_eq!(rows.len(), 15);
     let expected = MAPPING.lines().find(|line| line.starts_with("D-pad ")).unwrap().find("Focus").unwrap();
     for row in rows {
         let after_label = &row[row.find(')').unwrap() + 1..];
@@ -261,4 +261,22 @@ fn temporary_snapshot_failure_preserves_native_submission() {
     assert_eq!(on_snapshot_failure(&mut core,Input::Press(Btn::A),"temporary"),None);
     core.handle(Input::Release(Btn::A),&snap);core.begin_tick();
     assert_eq!(core.handle(Input::Press(Btn::A),&snap),vec![Action::SubmitText{target:snap.focused.unwrap()}]);
+}
+
+#[test]
+fn clear_feedback_reports_actual_command_result_without_enter() {
+    use crate::herdr::{Herdr};
+    use crate::herdr_tests::Fake;
+    let target=crate::engine_tests::snap().focused.unwrap();
+    let pane=serde_json::json!({"result":{"panes":[{"focused":true,"pane_id":target.pane_id,"workspace_id":target.workspace_id,"tab_id":target.tab_id,"agent":target.agent,"agent_status":"idle"}]}}).to_string();
+    let pane: &'static str=Box::leak(pane.into_boxed_str());
+    for result in [Ok("{}"),Err("offline")] {
+        let fake=Fake::new(vec![("herdr pane list",Ok(pane)),("herdr agent send-keys",result)]);
+        let outcomes=apply_actions(&Herdr{runner:&fake},vec![Action::ClearInput{target:target.clone()}],&mut crate::feedback::Feedback::default(), |_|panic!("not recording"));
+        assert_eq!(outcomes.len(),1);
+        let mut core=Core::new(Btn::RStick);
+        let actions=finish_native(&mut core,outcomes.into_iter().next().unwrap());
+        assert!(matches!(actions.as_slice(),[Action::Toast {title,..}] if title==if result.is_ok(){"Input line cleared"}else{"Clear unconfirmed"}));
+        assert_eq!(fake.calls().last().unwrap(),&format!("herdr agent send-keys {} ctrl+a ctrl+k",target.pane_id));
+    }
 }

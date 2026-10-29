@@ -191,3 +191,89 @@ fn leaving_preview_invalidates_late_submission_refusals() {
         assert!(c.submission_result(target,Some("late".into())).is_empty());
     }
 }
+
+#[test]
+fn square_clears_staged_input_once_without_submitting_or_zooming() {
+    for agent in ["claude","codex"] {
+        let mut s=snap();s.focused.as_mut().unwrap().agent=Some(agent.into());
+        let mut c=native();record(&mut c,"delete this",&s);c.insertion_result(s.focused.clone().unwrap(),Ok(()));c.begin_tick();
+        assert_eq!(c.handle(Input::Press(Btn::X),&s),vec![Action::ClearInput{target:s.focused.clone().unwrap()}]);
+        assert_eq!(c.mode(),Mode::Navigate);
+        assert!(c.handle(Input::Press(Btn::X),&s).is_empty());
+        assert!(c.handle(Input::Press(Btn::A),&s).iter().all(|a|!matches!(a,Action::SubmitText{..}|Action::SendKeys{..})));
+        c.handle(Input::Press(Btn::B),&s);c.handle(Input::Release(Btn::X),&s);
+        assert_eq!(c.handle(Input::Press(Btn::X),&s),vec![Action::ToggleZoom(s.focused.unwrap().pane_id)]);
+    }
+}
+#[test]
+fn square_clears_in_respond_but_preserves_other_modes() {
+    let s=snap();let mut c=Core::new(Btn::RStick);
+    assert_eq!(c.handle(Input::Press(Btn::X),&s),vec![Action::ToggleZoom(s.focused.clone().unwrap().pane_id)]);
+    c.handle(Input::Press(Btn::A),&s);
+    assert_eq!(c.mode(),Mode::Respond);
+    assert_eq!(c.handle(Input::Press(Btn::X),&s),vec![Action::ClearInput{target:s.focused.clone().unwrap()}]);
+    assert_eq!(c.mode(),Mode::Navigate);
+    let mut shell=s;shell.focused.as_mut().unwrap().agent=None;
+    let mut c=Core::new(Btn::RStick);c.handle(Input::Press(Btn::A),&shell);
+    assert_eq!(c.handle(Input::Press(Btn::X),&shell),vec![Action::SendPaneKeys{target:shell.focused.unwrap().pane_id,keys:vec![Key::Space]}]);
+}
+#[test]
+fn square_rejects_unreviewed_or_busy_clear_and_requires_release() {
+    for kind in 0..3 {
+        let mut c=native();record(&mut c,"draft",&snap());c.insertion_result(snap().focused.unwrap(),Ok(()));
+        if kind>0 {c.begin_tick();c.handle(Input::Press(Btn::RStick),&snap());}
+        if kind==2 {c.handle(Input::Release(Btn::RStick),&snap());}
+        let out=c.handle(Input::Press(Btn::X),&snap());
+        assert!(out.iter().all(|a|!matches!(a,Action::ClearInput{..}|Action::ToggleZoom(_))));
+        c.begin_tick();c.handle(Input::TranscriptFailed("done".into()),&snap());
+        assert!(c.handle(Input::Press(Btn::X),&snap()).is_empty());
+        c.handle(Input::Release(Btn::X),&snap());
+        assert!(matches!(c.handle(Input::Press(Btn::X),&snap()).first(),Some(Action::ClearInput{..})));
+    }
+    let mut c=Core::new(Btn::RStick);c.handle(Input::Press(Btn::A),&snap());c.handle(Input::Press(Btn::RStick),&snap());
+    assert!(c.handle(Input::Press(Btn::X),&snap()).iter().all(|a|!matches!(a,Action::ClearInput{..})));
+}
+#[test]
+fn square_clear_rejects_target_drift_and_unsupported_editors() {
+    for variant in 0..9 {
+        let mut c=native();inserted(&mut c);let mut changed=snap();let p=changed.focused.as_mut().unwrap();
+        match variant {0=>p.pane_id="other".into(),1=>p.workspace_id="other".into(),2=>p.tab_id="other".into(),3=>p.agent=Some("codex".into()),4=>p.agent=None,5=>p.status=Some(Status::Blocked),6=>p.status=Some(Status::Unknown),7=>p.status=None,_=>changed.focused=None}
+        assert!(c.handle(Input::Press(Btn::X),&changed).iter().all(|a|!matches!(a,Action::ClearInput{..}|Action::ToggleZoom(_))));
+    }
+    for mode in 0..2 {
+        let mut s=snap();s.focused.as_mut().unwrap().agent=Some("other".into());
+        let mut c=native();
+        if mode==0 {record(&mut c,"draft",&s);c.insertion_result(s.focused.clone().unwrap(),Ok(()));c.begin_tick();}
+        else {c.handle(Input::Press(Btn::A),&s);}
+        let actions=c.handle(Input::Press(Btn::X),&s);
+        assert!(matches!(actions.first(),Some(Action::Toast{body,..}) if body.contains("Codex and Claude")));
+    }
+}
+#[test]
+fn respond_clear_uses_the_original_agent_identity() {
+    for variant in 0..5 {
+        let mut c=Core::new(Btn::RStick);c.handle(Input::Press(Btn::A),&snap());
+        let mut s=snap();let p=s.focused.as_mut().unwrap();
+        match variant {0=>p.pane_id="other".into(),1=>p.agent=Some("codex".into()),2=>p.agent=None,3=>p.status=Some(Status::Blocked),_=>s.focused=None}
+        assert!(c.handle(Input::Press(Btn::X),&s).iter().all(|a|!matches!(a,Action::ClearInput{..}|Action::ToggleZoom(_))));
+    }
+}
+#[test]
+fn square_latch_resets_when_release_ownership_changes() {
+    for reset in 0..3 {
+        let mut c=native();inserted(&mut c);c.handle(Input::Press(Btn::X),&snap());
+        match reset {0=>c.menu_exit(),1=>{c.handle(Input::Disconnected,&snap());},_=>c.snapshot_failed()}
+        inserted(&mut c);
+        assert!(matches!(c.handle(Input::Press(Btn::X),&snap()).first(),Some(Action::ClearInput{..})));
+    }
+}
+
+#[test]
+fn native_and_respond_hints_explain_square_clear() {
+    let mut c=native();record(&mut c,"draft",&snap());
+    let inserted=c.insertion_result(snap().focused.unwrap(),Ok(()));
+    assert!(matches!(inserted.first(),Some(Action::Toast{body,..}) if body.contains("Square clears")));
+    c.menu_exit();
+    let entered=c.handle(Input::Press(Btn::A),&snap());
+    assert!(matches!(entered.first(),Some(Action::Toast{body,..}) if body.contains("Square clears")&&body.contains("Codex/Claude")));
+}

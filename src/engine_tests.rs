@@ -190,7 +190,6 @@ fn navigation_buttons_in_respond_mode_act_and_return_to_navigate() {
         (Btn::Rb, Action::FocusWorkspace("w7".into())),
         (Btn::Rt, Action::FocusTab("w5:t7".into())),
         (Btn::Y, Action::FocusAgent("w0:p3".into())),
-        (Btn::X, Action::ToggleZoom("w5:p1".into())),
     ] {
         let mut c = in_respond();
         let out = c.handle(Input::Press(b), &snap());
@@ -724,7 +723,7 @@ fn navigate_dpad_does_not_get_trapped_by_a_blocked_agent() {
 }
 
 fn blocked_entry(target: &str) -> Vec<Action> {
-    vec![toast("Respond mode", "D-pad moves; Cross confirms; Circle returns to Navigate; Create / Share escapes", Sound::None),
+    vec![toast("Respond mode", "D-pad moves; Cross confirms; Square clears input line (Codex/Claude); Circle returns to Navigate; Create / Share escapes", Sound::None),
         Action::SendKeys{target:target.into(),keys:vec![Key::Enter]}]
 }
 #[test]

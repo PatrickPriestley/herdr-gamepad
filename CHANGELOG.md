@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Clear unsent dictation with Square in native preview or Respond (Codex/Claude standard input-line shortcuts).
+
 - Add optional dictation preview directly in the agent input field, with Cross to submit.
 - Make saving preview Off restore automatic sending for subsequent recordings.
 

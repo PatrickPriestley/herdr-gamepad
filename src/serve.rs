@@ -120,12 +120,17 @@ pub fn next_inputs(mut poll: impl FnMut() -> Option<Option<Input>>, rx: &mpsc::R
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum NativeOutcome {
+    Cleared(Result<(),String>),
     Inserted(Pane,Result<(),String>),
     Submitted(Pane,Result<(),crate::herdr::NativeSubmitError>),
 }
 
 pub fn finish_native(core: &mut Core, outcome: NativeOutcome) -> Vec<Action> {
     match outcome {
+        NativeOutcome::Cleared(result)=>vec![match result {
+            Ok(())=>toast("Input line cleared","",Sound::None),
+            Err(error)=>toast("Clear unconfirmed",&error,Sound::Request),
+        }],
         NativeOutcome::Inserted(target,result)=>core.insertion_result(target,result),
         NativeOutcome::Submitted(target,result)=>match result {
             Err(crate::herdr::NativeSubmitError::Refused(error))=>core.submission_result(target,Some(error)),
@@ -150,6 +155,7 @@ pub fn apply_actions(herdr: &Herdr<impl Runner>, actions: Vec<Action>, feedback:
                 // Return delivery status without logging private transcript contents.
                 insertions.push(NativeOutcome::Inserted(target.clone(),result));
             },
+            Action::ClearInput {..} => insertions.push(NativeOutcome::Cleared(herdr.apply(&action))),
             Action::SubmitText {ref target} => {
                 insertions.push(NativeOutcome::Submitted(target.clone(),herdr.submit_native(target)));
             },
@@ -311,10 +317,11 @@ Cross (Xbox: A)        Enter Respond / Interact
 RESPOND
 D-pad                  Move through the agent's options
 Cross (Xbox: A)        Enter / confirm
+Square (Xbox: X)       Clear input line (Codex / Claude)
 Circle (Xbox: B)       Return to Navigate
 Create / Share (View)  Escape / back in the app
 Shoulders, triggers,
-  Triangle / Square    Navigate as above and leave Respond
+  Triangle             Navigate as above and leave Respond
 
 INTERACT (NON-AGENT PANES)
 Cross enters this mode on the focused pane without sending a key.
@@ -338,6 +345,8 @@ Circle (Xbox: B)       Back; View or the menu button closes
 New space, worktrees, pane actions, Close…, Settings, Logs and Controls.
 Closing stops running processes in the pane or space. Focus changes cancel.
 Finish dictation before opening actions.
+Native preview: Cross sends; Square clears the dictated input line.
+Clear uses standard Codex/Claude editor shortcuts; multiline drafts clear only the current line.
 
 D-pad always moves pane focus in Navigate; Cross enters Respond on an agent.
 One Cross (Xbox: A) press answers a waiting agent, including from Navigate.
