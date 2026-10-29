@@ -1,7 +1,7 @@
 # herd.gamepad: drive Herdr with a game controller.
 # Design: docs/plans/2026-10-27-gamepad-design.md
 # Settings: $(herdr plugin config-dir herd.gamepad)/config.toml — whisper.model, whisper.language,
-# voice.button (rstick, lstick, menu), voice.max_seconds.
+# voice.button (rstick, lstick, menu), voice.max_seconds, ui.labels (both, playstation, xbox).
 
 id = "herd.gamepad"
 name = "Gamepad"
@@ -28,10 +28,10 @@ command = ["./bin/herd-gamepad", "mapping"]
 
 [[panes]]
 id = "close-menu"
-title = "Gamepad close actions"
+title = "Gamepad actions (compatibility)"
 placement = "popup"
-width = 64
-height = 12
+width = 84
+height = 26
 command = ["./bin/herd-gamepad", "close-menu"]
 
 [[actions]]
@@ -63,3 +63,11 @@ id = "show-logs"
 title = "Gamepad: show logs"
 description = "Open recent daemon diagnostics."
 command = ["./bin/herd-gamepad", "open-logs"]
+
+[[panes]]
+id = "actions-menu"
+title = "Gamepad actions"
+placement = "popup"
+width = 84
+height = 26
+command = ["./bin/herd-gamepad", "actions-menu"]

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Add the controller actions menu for spaces, worktrees, pane actions, settings, logs and controls.
+- Keep menu input responsive during reads and mutations, preserve pending operations across popup sessions, and require live renderer acknowledgements for activation.
+- Save label and voice preferences with conflict detection and format-preserving atomic writes.
+
 ## 0.2.0
 
 - Answer a waiting agent with one Cross press from Navigate or Respond.

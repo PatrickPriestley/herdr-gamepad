@@ -228,6 +228,11 @@ fn worktree_commands_use_paths_and_pinned_base() {
     }));
     let op = operation(enter(&mut m, 1));
     assert_eq!(
+        op.expected_repository_root,
+        Some(repository().root),
+        "Create must carry the captured repository root"
+    );
+    assert_eq!(
         op.command,
         Command::CreateWorktree {
             branch: "gamepad/123".into(),
@@ -239,6 +244,11 @@ fn worktree_commands_use_paths_and_pinned_base() {
     load_repo(&mut m);
     enter(&mut m, 1);
     let op = operation(enter(&mut m, 1));
+    assert_eq!(
+        op.expected_repository_root,
+        Some(repository().root),
+        "Open must carry the captured repository root"
+    );
     assert_eq!(
         op.command,
         Command::OpenWorktree {
@@ -256,6 +266,11 @@ fn worktree_commands_use_paths_and_pinned_base() {
     assert_eq!(m.view().selected, 0);
     assert!(m.view().details.join(" ").contains("/tmp/linked"));
     let op = operation(enter(&mut m, 1));
+    assert_eq!(
+        op.expected_repository_root,
+        Some(repository().root),
+        "Remove must carry the captured repository root"
+    );
     assert_eq!(
         op.command,
         Command::RemoveWorktree {
@@ -1022,4 +1037,135 @@ fn pending_to_unknown_global_slot_updates_view_and_semantic_revision() {
     reopened.sync_operation_slot(&slot);
     assert_eq!(reopened.revision(), rev + 2);
     assert!(reopened.view().status.starts_with("Outcome unknown"));
+}
+
+#[test]
+fn pending_settings_never_render_configuration_version_contents() {
+    let mut settings = settings();
+    settings.version = "secret-token-that-must-not-render".into();
+    let mut m = Menu::new(901, None, settings, "n".into(), "b".into());
+    for _ in 0..4 {
+        let r = m.revision();
+        m.input(Input::Down, r);
+    }
+    let r = m.revision();
+    m.input(Input::Activate, r);
+    m.input(Input::Release(ActionKey::Activate), 0);
+    for _ in 0..4 {
+        let r = m.revision();
+        m.input(Input::Down, r);
+    }
+    let r = m.revision();
+    let effects = m.input(Input::Activate, r);
+    assert!(matches!(effects.first(), Some(Effect::Mutate(_))));
+    assert!(!m
+        .view()
+        .details
+        .join("\n")
+        .contains("secret-token-that-must-not-render"));
+}
+#[test]
+fn settings_form_uses_disk_baseline_while_legends_use_active_controls() {
+    let disk = settings();
+    let mut active = disk.clone();
+    active.voice_button = Btn::Menu;
+    active.labels = LabelStyle::Xbox;
+    let mut m =
+        Menu::new(999, None, disk.clone(), "n".into(), "b".into()).with_active_settings(active);
+    assert_eq!(m.settings(), &disk);
+    assert_eq!(m.view().menu_button, "L3");
+    assert_eq!(m.view().labels, LabelStyle::Xbox);
+    for _ in 0..4 {
+        let rev = m.revision();
+        m.input(Input::Down, rev);
+    }
+    let rev = m.revision();
+    m.input(Input::Activate, rev);
+    assert!(m.view().rows[1].label.contains("R3"));
+}
+#[test]
+fn reopening_shows_actual_returned_checkout_path_without_rearming_action() {
+    let mut m = Menu::new(888, None, settings(), "n".into(), "b".into());
+    let mut slot = OperationSlot::default();
+    let operation = Operation {
+        id: RequestId {
+            session: 887,
+            serial: 1,
+        },
+        context: None,
+        expected_repository: None,
+        expected_repository_root: None,
+        command: Command::CreateWorktree {
+            branch: "b".into(),
+            base: "commit".into(),
+            repository: "/repo".into(),
+        },
+    };
+    assert!(slot.reserve(operation.clone()));
+    assert!(slot.complete(
+        operation.id,
+        Outcome::Success("Created checkout /actual/server-chosen/path".into())
+    ));
+    m.sync_operation_slot(&slot);
+    assert!(m.view().status.contains("/actual/server-chosen/path"));
+    assert!(!slot.blocked());
+    assert!(m.pending().is_none());
+}
+#[test]
+fn completed_long_checkout_path_is_available_in_scrollable_details() {
+    let path = format!("/actual/{}/checkout", "long-directory/".repeat(30));
+    let mut m = Menu::new(888, None, settings(), "n".into(), "b".into());
+    let mut slot = OperationSlot::default();
+    let operation = Operation {
+        id: RequestId {
+            session: 887,
+            serial: 1,
+        },
+        context: None,
+        expected_repository: None,
+        expected_repository_root: None,
+        command: Command::ToggleZoom,
+    };
+    assert!(slot.reserve(operation.clone()));
+    assert!(slot.complete(operation.id, Outcome::Success(path.clone())));
+    m.sync_operation_slot(&slot);
+    assert!(m.view().details.iter().any(|s| s.contains(&path)));
+    let rev = m.revision();
+    m.input(Input::Details, rev);
+    m.set_detail_width(30);
+    let initial = crate::menu_render::render(&m.view(), 30, 10);
+    for _ in 0..30 {
+        let rev = m.revision();
+        m.input(Input::Down, rev);
+    }
+    let scrolled = crate::menu_render::render(&m.view(), 30, 10);
+    assert_ne!(initial, scrolled);
+    assert!(scrolled.contains("checkout"));
+}
+#[test]
+fn retained_failure_is_visible_without_rearming_and_settings_operation_is_named() {
+    let mut m = Menu::new(888, None, settings(), "n".into(), "b".into());
+    let mut slot = OperationSlot::default();
+    let operation = Operation {
+        id: RequestId {
+            session: 887,
+            serial: 1,
+        },
+        context: None,
+        expected_repository: None,
+        expected_repository_root: None,
+        command: Command::SaveSettings {
+            original: settings(),
+            updated: settings(),
+        },
+    };
+    assert!(slot.reserve(operation.clone()));
+    assert!(slot.complete(operation.id, Outcome::Failed("disk full".into())));
+    m.sync_operation_slot(&slot);
+    assert_eq!(m.view().status, "Last failure: disk full");
+    assert!(m.view().details.iter().any(|s| s.contains("Save settings")));
+    assert!(!slot.blocked());
+    assert!(m.pending().is_none());
+    let rev = m.revision();
+    assert!(m.input(Input::Activate, rev).is_empty());
 }

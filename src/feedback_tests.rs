@@ -93,97 +93,6 @@ fn routine_feedback_is_quiet_and_errors_do_not_queue() {
     f.emit(&h, &toast("error", "three", Sound::Request));
     assert_eq!(r.calls.borrow().len(), 2);
 }
-#[test]
-fn menu_requires_the_current_live_renderer_and_never_toasts() {
-    let root = root();
-    let r = Fake::default();
-    let h = Herdr { runner: &r };
-    let mut ui = MenuUi::new(&root);
-    let mut c = Core::new(Btn::RStick);
-    let s = crate::engine_tests::snap();
-    let out = ui.handle(&mut c, Input::Press(Btn::Menu), &s, &h).unwrap();
-    assert!(
-        ui.active.is_some(),
-        "explicit Menu must launch current display"
-    );
-    assert!(out.is_empty());
-    let dir = ui.active.as_ref().unwrap().dir.clone();
-    let v = viewer(&dir);
-    wait_ack(&dir, 1);
-    ui.sync(&mut c, &h).unwrap();
-    // Prevent a renderer race while checking the stale acknowledgement gate.
-    unsafe {
-        libc::kill(v.0.id() as i32, libc::SIGSTOP);
-    }
-    let out = ui.handle(&mut c, Input::Press(Btn::X), &s, &h).unwrap();
-    assert!(out.is_empty());
-    assert_eq!(ui.active.as_ref().unwrap().revision, 2);
-    assert!(ui
-        .active
-        .as_ref()
-        .unwrap()
-        .text
-        .contains("Close pane w5:p1?"));
-    assert!(ui
-        .handle(&mut c, Input::Press(Btn::A), &s, &h)
-        .unwrap()
-        .is_empty());
-    assert!(c.close_view().is_some());
-    unsafe {
-        libc::kill(v.0.id() as i32, libc::SIGCONT);
-    }
-    wait_ack(&dir, 2);
-    assert_eq!(
-        ui.handle(&mut c, Input::Press(Btn::A), &s, &h).unwrap(),
-        vec![Action::ClosePane("w5:p1".into())]
-    );
-    assert!(ui.active.is_none());
-    assert!(!dir.exists());
-    // A second popup instance cannot reuse the first one's acknowledgement.
-    ui.handle(&mut c, Input::Press(Btn::Menu), &s, &h).unwrap();
-    let dir2 = ui.active.as_ref().unwrap().dir.clone();
-    assert_ne!(dir, dir2);
-    let v2 = viewer(&dir2);
-    wait_ack(&dir2, 1);
-    ui.handle(&mut c, Input::Press(Btn::Y), &s, &h).unwrap();
-    wait_ack(&dir2, 2);
-    drop(v2);
-    assert!(ui
-        .handle(&mut c, Input::Press(Btn::A), &s, &h)
-        .unwrap()
-        .is_empty());
-    assert!(c.close_view().is_none());
-    assert!(ui.active.is_none());
-    assert!(r
-        .calls
-        .borrow()
-        .iter()
-        .all(|a| a.get(1).map(String::as_str) == Some("plugin")));
-    fs::remove_dir(root).unwrap();
-}
-#[test]
-fn popup_failure_disarms_and_close_view_names_the_target() {
-    let root = root();
-    let r = Fake {
-        fail: true,
-        ..Fake::default()
-    };
-    let h = Herdr { runner: &r };
-    let mut ui = MenuUi::new(&root);
-    let mut c = Core::new(Btn::RStick);
-    let s = crate::engine_tests::snap();
-    let result = ui.handle(&mut c, Input::Press(Btn::Menu), &s, &h);
-    assert!(result.is_err(), "failed launch must surface");
-    assert!(c.close_view().is_none());
-    assert!(ui.active.is_none());
-    c.handle(Input::Press(Btn::Menu), &s);
-    assert!(c.close_view().unwrap().contains("w5:p1"));
-    c.handle(Input::Press(Btn::Y), &s);
-    let text = c.close_view().unwrap();
-    assert!(text.contains("Close space w5"));
-    assert!(text.contains("Stops its running processes"));
-    fs::remove_dir(root).unwrap();
-}
 
 fn wait_exit(viewer: &mut Viewer, success: bool) {
     let deadline = Instant::now() + Duration::from_secs(3);
@@ -195,60 +104,6 @@ fn wait_exit(viewer: &mut Viewer, success: bool) {
         assert!(Instant::now() < deadline, "renderer must exit");
         std::thread::sleep(Duration::from_millis(5));
     }
-}
-#[test]
-fn startup_timeout_disarms_and_reports_the_missing_display() {
-    let root = root();
-    let h = Herdr {
-        runner: Fake::default(),
-    };
-    let mut ui = MenuUi::new(&root);
-    let mut c = Core::new(Btn::RStick);
-    let s = crate::engine_tests::snap();
-    ui.handle(&mut c, Input::Press(Btn::Menu), &s, &h).unwrap();
-    assert!(ui.active.is_some());
-    ui.active.as_mut().unwrap().started = Instant::now() - Duration::from_secs(3);
-    assert!(
-        ui.sync(&mut c, &h).is_err(),
-        "accepted popup that never starts must report failure"
-    );
-    assert!(c.close_view().is_none());
-    assert!(ui.active.is_none());
-    fs::remove_dir(root).unwrap();
-}
-#[test]
-fn renderer_exit_distinguishes_cancel_from_read_error_and_rejects_duplicates() {
-    let root = root();
-    let h = Herdr {
-        runner: Fake::default(),
-    };
-    let mut ui = MenuUi::new(&root);
-    let mut c = Core::new(Btn::RStick);
-    let s = crate::engine_tests::snap();
-    ui.handle(&mut c, Input::Press(Btn::Menu), &s, &h).unwrap();
-    assert!(ui.active.is_some());
-    let dir = ui.active.as_ref().unwrap().dir.clone();
-    let mut v = viewer(&dir);
-    wait_ack(&dir, 1);
-    ui.sync(&mut c, &h).unwrap();
-    let mut duplicate = viewer(&dir);
-    wait_exit(&mut duplicate, false);
-    c.cancel_close();
-    ui.sync(&mut c, &h).unwrap();
-    wait_exit(&mut v, true);
-    assert!(!dir.exists());
-    ui.handle(&mut c, Input::Press(Btn::Menu), &s, &h).unwrap();
-    let dir = ui.active.as_ref().unwrap().dir.clone();
-    let mut v = viewer(&dir);
-    wait_ack(&dir, 1);
-    ui.sync(&mut c, &h).unwrap();
-    fs::remove_file(dir.join("state")).unwrap();
-    fs::create_dir(dir.join("state")).unwrap();
-    wait_exit(&mut v, false);
-    ui.sync(&mut c, &h).unwrap();
-    assert!(c.close_view().is_none());
-    assert!(ui.active.is_none());
-    fs::remove_dir(root).unwrap();
 }
 
 #[test]
@@ -264,45 +119,6 @@ fn error_gate_has_an_exact_five_second_boundary_and_ignores_routine_messages() {
     ));
     assert!(f.admit(Sound::Request, now + Duration::from_secs(5)));
     assert!(!f.admit(Sound::Request, now + Duration::from_secs(5)));
-}
-
-#[test]
-fn ordinary_actions_bypass_the_popup_and_a_dead_lease_cannot_authorize_close() {
-    let root = root();
-    let r = Fake::default();
-    let h = Herdr { runner: &r };
-    let mut ui = MenuUi::new(&root);
-    let mut core = Core::new(Btn::RStick);
-    let snap = crate::engine_tests::snap();
-    assert_eq!(
-        ui.handle(&mut core, Input::Press(Btn::X), &snap, &h)
-            .unwrap(),
-        vec![Action::ToggleZoom("w5:p1".into())]
-    );
-    assert!(r.calls.borrow().is_empty());
-    ui.handle(&mut core, Input::Press(Btn::Menu), &snap, &h)
-        .unwrap();
-    let session = ui.active.as_ref().unwrap();
-    let v = viewer(&session.dir);
-    wait_ack(&session.dir, 1);
-    assert!(session.ready());
-    drop(v);
-    assert!(
-        !session.ready(),
-        "a persisted ack is not proof of a live renderer"
-    );
-    drop(ui);
-    fs::remove_dir(root).unwrap();
-}
-#[test]
-fn close_view_uses_the_configured_cancel_button() {
-    let mut core = Core::new(Btn::Menu);
-    let snap = crate::engine_tests::snap();
-    core.handle(Input::Press(Btn::LStick), &snap);
-    assert!(core
-        .close_view()
-        .unwrap()
-        .contains("L3 / left stick click: Cancel"));
 }
 
 #[test]
@@ -379,31 +195,228 @@ fn lease_acquisition_preserves_non_contention_errors_without_retrying() {
 }
 
 #[test]
-fn close_popup_names_playstation_buttons_with_explicit_xbox_equivalents() {
-    let snap = crate::engine_tests::snap();
-    for voice in [Btn::RStick, Btn::LStick, Btn::Menu] {
-        let mut core = Core::new(voice);
-        core.handle(Input::Press(menu_button(voice)), &snap);
-        let view = core.close_view().unwrap();
-        for label in ["Square (Xbox: X): Close pane", "Triangle (Xbox: Y): Close space",
-                      "Circle (Xbox: B): Cancel", "Create / Share (Xbox: View): Cancel"] {
-            assert!(view.contains(label), "missing {label}: {view}");
-        }
-        let cancel = if voice == Btn::Menu { "L3 / left stick click: Cancel" }
-                     else { "Options (Xbox: Menu): Cancel" };
-        assert!(view.contains(cancel));
-        for choice in [Btn::X, Btn::Y] {
-            core.handle(Input::Press(choice), &snap);
-            let selected = core.close_view().unwrap();
-            assert!(selected.contains("Cross (Xbox: A): Confirm"));
-            assert!(selected.contains("Circle (Xbox: B): Cancel"));
-            assert!(selected.contains(cancel));
-            assert!(!selected.contains("face"));
-            assert!(selected.lines().count() <= 10);
-            assert!(selected.lines().all(|line| line.chars().count() <= 62));
-        }
-        assert!(!view.contains("face"));
-        assert!(view.lines().count() <= 10);
-        assert!(view.lines().all(|line| line.chars().count() <= 62));
+fn passive_viewer_lease_ack_retirement_and_duplicate_guards() {
+    let root = root();
+    let session = Session::new(&root, "test".into()).unwrap();
+    let mut v = viewer(&session.dir);
+    wait_ack(&session.dir, 1);
+    assert!(session.ready());
+    let mut duplicate = viewer(&session.dir);
+    wait_exit(&mut duplicate, false);
+    let dir = session.dir.clone();
+    drop(session);
+    wait_exit(&mut v, true);
+    assert!(!dir.exists());
+    let session = Session::new(&root, "new".into()).unwrap();
+    let v = viewer(&session.dir);
+    wait_ack(&session.dir, 1);
+    assert!(session.ready());
+    drop(v);
+    assert!(!session.ready());
+    drop(session);
+    fs::remove_dir(root).unwrap();
+}
+#[test]
+fn renderer_read_errors_are_not_clean_cancellation() {
+    let root = root();
+    let session = Session::new(&root, "test".into()).unwrap();
+    let mut v = viewer(&session.dir);
+    wait_ack(&session.dir, 1);
+    fs::remove_file(session.dir.join("state")).unwrap();
+    fs::create_dir(session.dir.join("state")).unwrap();
+    wait_exit(&mut v, false);
+    drop(session);
+    fs::remove_dir(root).unwrap();
+}
+fn menu_view() -> crate::menu::View {
+    let settings = crate::menu::SettingsSnapshot {
+        labels: crate::menu::LabelStyle::Both,
+        voice_button: Btn::RStick,
+        max_seconds: 60,
+        model: "model".into(),
+        language: "en".into(),
+        config_path: "config".into(),
+        version: "v1".into(),
+    };
+    crate::menu::Menu::new(1, None, settings, "space".into(), "branch".into()).view()
+}
+#[test]
+fn typed_publisher_requires_current_semantic_ack_even_when_clipped_frames_match() {
+    let root = root();
+    let mut first = menu_view();
+    first.scope = format!("{}A", "long".repeat(100));
+    let mut second = first.clone();
+    second.scope = format!("{}B", "long".repeat(100));
+    second.revision += 1;
+    assert_eq!(
+        crate::menu_render::render(&first, 80, 24),
+        crate::menu_render::render(&second, 80, 24)
+    );
+    let mut publisher = Publisher::new(&root, &first).unwrap();
+    let dir = publisher.directory().to_path_buf();
+    let v = viewer(&dir);
+    wait_ack(&dir, first.revision);
+    assert_eq!(publisher.poll().unwrap().0, first.revision);
+    unsafe {
+        libc::kill(v.0.id() as i32, libc::SIGSTOP);
     }
+    publisher.publish(&second).unwrap();
+    assert_eq!(publisher.poll().unwrap().0, 0);
+    unsafe {
+        libc::kill(v.0.id() as i32, libc::SIGCONT);
+    }
+    wait_ack(&dir, second.revision);
+    assert_eq!(publisher.poll().unwrap(), (second.revision, Some(80)));
+    drop(v);
+    assert!(publisher.poll().is_err());
+    drop(publisher);
+    fs::remove_dir(root).unwrap();
+}
+#[test]
+fn typed_publisher_times_out_without_a_viewer() {
+    let root = root();
+    let mut publisher = Publisher::new(&root, &menu_view()).unwrap();
+    assert_eq!(publisher.poll().unwrap().0, 0);
+    publisher.session.started = Instant::now() - Duration::from_secs(6);
+    assert!(publisher.poll().is_err());
+    drop(publisher);
+    fs::remove_dir(root).unwrap();
+}
+#[test]
+fn a_full_height_frame_flushes_without_scroll_inducing_final_newline() {
+    struct Output {
+        bytes: Vec<u8>,
+        flushed: bool,
+    }
+    impl Write for Output {
+        fn write(&mut self, b: &[u8]) -> io::Result<usize> {
+            self.bytes.extend_from_slice(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            self.flushed = true;
+            Ok(())
+        }
+    }
+    let frame = crate::menu_render::render(&menu_view(), 80, 8);
+    let mut out = Output {
+        bytes: vec![],
+        flushed: false,
+    };
+    write_frame(&mut out, &frame).unwrap();
+    assert!(out.flushed);
+    assert!(out.bytes.starts_with(b"\x1b[2J\x1b[H"));
+    assert!(!out.bytes.ends_with(b"\n"));
+    assert_eq!(&out.bytes[7..], frame.as_bytes());
+}
+#[test]
+fn typed_viewer_reports_actual_terminal_resize_and_restores_cursor() {
+    use std::os::fd::FromRawFd;
+    let root = root();
+    let publisher = Publisher::new(&root, &menu_view()).unwrap();
+    let dir = publisher.directory().to_path_buf();
+    let (mut master, mut slave) = (-1, -1);
+    let mut size = libc::winsize {
+        ws_row: 12,
+        ws_col: 41,
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    };
+    assert_eq!(
+        unsafe {
+            libc::openpty(
+                &mut master,
+                &mut slave,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &mut size,
+            )
+        },
+        0
+    );
+    let mut master = unsafe { File::from_raw_fd(master) };
+    let slave = unsafe { File::from_raw_fd(slave) };
+    let child = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "feedback::tests::renderer_fixture",
+            "--nocapture",
+        ])
+        .env("GAMEPAD_MENU_TEST_DIR", &dir)
+        .env("GAMEPAD_MENU_DIR", &dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(slave.try_clone().unwrap()))
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut v = Viewer(child);
+    use std::io::Read;
+    let flags = unsafe { libc::fcntl(master.as_raw_fd(), libc::F_GETFL) };
+    assert_ne!(flags, -1);
+    assert_eq!(
+        unsafe { libc::fcntl(master.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) },
+        0
+    );
+    let master_fd = master.as_raw_fd();
+    let mut bytes = vec![];
+    let mut wait_width = |width: usize| {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while fs::read_to_string(dir.join("size")).ok().as_deref() != Some(&width.to_string()) {
+            let mut buffer = [0; 4096];
+            while let Ok(n) = master.read(&mut buffer) {
+                if n == 0 {
+                    break;
+                }
+                bytes.extend_from_slice(&buffer[..n]);
+            }
+            assert!(Instant::now() < deadline, "width {width}");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    };
+    wait_width(41);
+    let resized = libc::winsize {
+        ws_row: 15,
+        ws_col: 53,
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    };
+    assert_eq!(
+        unsafe { libc::ioctl(master_fd, libc::TIOCSWINSZ, &resized) },
+        0
+    );
+    wait_width(53);
+    // A partially initialized terminal size must use the complete fallback.
+    for (columns, rows) in [(0, 15), (53, 0)] {
+        let incomplete = libc::winsize {
+            ws_col: columns,
+            ws_row: rows,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
+        assert_eq!(
+            unsafe { libc::ioctl(master_fd, libc::TIOCSWINSZ, &incomplete) },
+            0
+        );
+        wait_width(80);
+        assert_eq!(
+            unsafe { libc::ioctl(master_fd, libc::TIOCSWINSZ, &resized) },
+            0
+        );
+        wait_width(53);
+    }
+    drop(publisher);
+    wait_exit(&mut v, true);
+    let mut buffer = [0; 4096];
+    loop {
+        match master.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(n) => bytes.extend_from_slice(&buffer[..n]),
+            Err(_) => break,
+        }
+    }
+    let output = String::from_utf8_lossy(&bytes);
+    assert!(output.contains("\x1b[?25l"), "{output:?}");
+    assert!(output.contains("\x1b[?25h"));
+    assert!(output.matches("\x1b[2J").count() >= 2);
+    fs::remove_dir(root).unwrap();
 }

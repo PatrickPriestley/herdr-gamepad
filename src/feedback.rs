@@ -41,100 +41,12 @@ impl Feedback {
     }
 }
 
-pub struct MenuUi {
-    root: PathBuf,
-    active: Option<Session>,
-}
 struct Session {
     dir: PathBuf,
     text: String,
     revision: u64,
     started: Instant,
     seen: bool,
-}
-impl MenuUi {
-    pub fn new(root: &Path) -> Self {
-        Self {
-            root: root.into(),
-            active: None,
-        }
-    }
-    pub fn sync(&mut self, core: &mut Core, herdr: &Herdr<impl Runner>) -> Result<(), String> {
-        let result = self.sync_inner(core, herdr);
-        if result.is_err() {
-            core.cancel_close();
-            self.active = None;
-        }
-        result
-    }
-    fn sync_inner(&mut self, core: &mut Core, herdr: &Herdr<impl Runner>) -> Result<(), String> {
-        let Some(text) = core.close_view() else {
-            self.active = None;
-            return Ok(());
-        };
-        if let Some(session) = &mut self.active {
-            let alive = session.alive();
-            if !alive && (session.seen || session.started.elapsed() >= Duration::from_secs(2)) {
-                if !session.seen {
-                    return Err("close menu did not start".into());
-                }
-                core.cancel_close();
-                self.active = None;
-                return Ok(());
-            }
-            session.seen |= alive;
-            if session.text != text {
-                session.text = text;
-                session.revision += 1;
-                session.write()?;
-            }
-        } else {
-            let session = Session::new(&self.root, text)?;
-            let env = format!("GAMEPAD_MENU_DIR={}", session.dir.display());
-            herdr.runner.run(&[
-                "herdr",
-                "plugin",
-                "pane",
-                "open",
-                "--plugin",
-                crate::config::PLUGIN_ID,
-                "--entrypoint",
-                "close-menu",
-                "--no-focus",
-                "--env",
-                &env,
-            ])?;
-            self.active = Some(session);
-        }
-        Ok(())
-    }
-    pub fn handle(
-        &mut self,
-        core: &mut Core,
-        input: Input,
-        snap: &Snapshot,
-        herdr: &Herdr<impl Runner>,
-    ) -> Result<Vec<Action>, String> {
-        let was_menu = core.close_view().is_some();
-        self.sync(core, herdr)?;
-        // Consume an input aimed at a renderer that disappeared, rather than forwarding it to an agent.
-        if was_menu && core.close_view().is_none() {
-            return Ok(vec![]);
-        }
-        if input == Input::Press(Btn::A)
-            && was_menu
-            && !self.active.as_ref().is_some_and(Session::ready)
-        {
-            return Ok(vec![]);
-        }
-        let mut actions = core.handle(input, snap);
-        let is_menu = core.close_view().is_some();
-        self.sync(core, herdr)?;
-        if was_menu || is_menu {
-            actions.retain(|a| !matches!(a, Action::Toast { .. }));
-        }
-        Ok(actions)
-    }
 }
 impl Session {
     fn new(root: &Path, text: String) -> Result<Self, String> {
@@ -223,6 +135,9 @@ fn acquire_lease(fd: std::os::fd::RawFd) -> Result<(), String> {
         std::thread::sleep(Duration::from_millis(20));
     }
 }
+fn write_frame(out: &mut impl Write, text: &str) -> io::Result<()> {
+    write!(out, "\x1b[2J\x1b[H{text}").and_then(|_| out.flush())
+}
 fn render(dir: &Path) -> Result<(), String> {
     let lease = OpenOptions::new()
         .read(true)
@@ -230,7 +145,10 @@ fn render(dir: &Path) -> Result<(), String> {
         .open(dir.join("viewer.lock"))
         .map_err(|e| e.to_string())?;
     acquire_lease(lease.as_raw_fd())?;
+    let _cursor = Cursor;
+    print!("\x1b[?25l");
     let mut shown = 0;
+    let mut last_size = (0, 0);
     loop {
         let state = match fs::read_to_string(dir.join("state")) {
             Ok(s) => s,
@@ -239,13 +157,23 @@ fn render(dir: &Path) -> Result<(), String> {
         };
         let value: serde_json::Value = serde_json::from_str(&state).map_err(|e| e.to_string())?;
         let revision = value["revision"].as_u64().ok_or("invalid menu revision")?;
-        let text = value["text"].as_str().ok_or("invalid menu text")?;
-        if revision != shown {
+        let size = terminal_size();
+        let text = if let Some(view) = value.get("view") {
+            let view: crate::menu::View =
+                serde_json::from_value(view.clone()).map_err(|e| e.to_string())?;
+            crate::menu_render::render(&view, size.0, size.1)
+        } else {
+            value["text"]
+                .as_str()
+                .ok_or("invalid menu text")?
+                .to_string()
+        };
+        if revision != shown || size != last_size {
             let mut out = io::stdout().lock();
-            write!(out, "\x1b[2J\x1b[H{text}\r\n")
-                .and_then(|_| out.flush())
-                .map_err(|e| e.to_string())?;
+            write_frame(&mut out, &text).map_err(|e| e.to_string())?;
             atomic(dir, "ack", &revision.to_string())?;
+            atomic(dir, "size", &size.0.to_string())?;
+            last_size = size;
             shown = revision;
         }
         std::thread::sleep(Duration::from_millis(20));
@@ -254,3 +182,63 @@ fn render(dir: &Path) -> Result<(), String> {
 #[cfg(test)]
 #[path = "feedback_tests.rs"]
 mod tests;
+
+struct Cursor;
+impl Drop for Cursor {
+    fn drop(&mut self) {
+        print!("\x1b[?25h");
+        let _ = io::stdout().flush();
+    }
+}
+fn terminal_size() -> (usize, usize) {
+    let mut size: libc::winsize = unsafe { std::mem::zeroed() };
+    if unsafe { libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut size) } == 0
+        && size.ws_col > 0
+        && size.ws_row > 0
+    {
+        (size.ws_col as usize, size.ws_row as usize)
+    } else {
+        (80, 24)
+    }
+}
+/// Passive publisher. Opening the external popup belongs to the cancellable read worker.
+pub struct Publisher {
+    session: Session,
+}
+impl Publisher {
+    pub fn new(root: &Path, view: &crate::menu::View) -> Result<Self, String> {
+        let mut publisher = Self {
+            session: Session::new(root, String::new())?,
+        };
+        publisher.publish(view)?;
+        Ok(publisher)
+    }
+    pub fn directory(&self) -> &Path {
+        &self.session.dir
+    }
+    pub fn publish(&mut self, view: &crate::menu::View) -> Result<(), String> {
+        self.session.revision = view.revision;
+        atomic(
+            &self.session.dir,
+            "state",
+            &serde_json::json!({"revision":view.revision,"view":view}).to_string(),
+        )
+    }
+    pub fn poll(&mut self) -> Result<(u64, Option<usize>), String> {
+        let alive = self.session.alive();
+        if !alive && (self.session.seen || self.session.started.elapsed() > Duration::from_secs(5))
+        {
+            return Err("Actions menu viewer closed".into());
+        }
+        self.session.seen |= alive;
+        let ack = if self.session.ready() {
+            self.session.revision
+        } else {
+            0
+        };
+        let width = fs::read_to_string(self.session.dir.join("size"))
+            .ok()
+            .and_then(|s| s.parse().ok());
+        Ok((ack, width))
+    }
+}

@@ -2,7 +2,7 @@
 use crate::engine::Btn;
 use std::path::Path;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum LabelStyle {
     #[default]
     Both,
@@ -117,6 +117,7 @@ pub enum Command {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Operation {
     pub expected_repository: Option<String>,
+    pub expected_repository_root: Option<String>,
     pub id: RequestId,
     pub context: Option<Context>,
     pub command: Command,
@@ -240,7 +241,7 @@ impl Input {
         }
     }
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Field {
     Name,
     Branch,
@@ -278,7 +279,7 @@ pub enum EditResult {
     Done(String),
     Cancelled,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TextEditor {
     pub field: Field,
     pub buffer: String,
@@ -343,12 +344,12 @@ impl TextEditor {
         EditResult::Continue
     }
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Row {
     pub label: String,
     pub disabled: Option<String>,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct View {
     pub revision: u64,
     pub scope: String,
@@ -478,6 +479,11 @@ impl Menu {
             external_operation: None,
         }
     }
+    /// Keep persisted form values independent from the controls active this session.
+    pub fn with_active_settings(mut self, active: SettingsSnapshot) -> Self {
+        self.active_settings = active;
+        self
+    }
     pub fn revision(&self) -> u64 {
         self.revision
     }
@@ -507,13 +513,10 @@ impl Menu {
     }
     /// Synchronize the daemon-owned slot even when this popup did not submit it.
     pub fn sync_operation_slot(&mut self, slot: &OperationSlot) {
-        let external = if slot.blocked() {
-            slot.operation()
-                .zip(slot.state())
-                .map(|(op, state)| (op.clone(), state.clone()))
-        } else {
-            None
-        };
+        let external = slot
+            .operation()
+            .zip(slot.state())
+            .map(|(op, state)| (op.clone(), state.clone()));
         if self.external_operation != external || self.external_busy != slot.blocked() {
             self.external_operation = external;
             self.external_busy = slot.blocked();
@@ -619,6 +622,16 @@ impl Menu {
                     | Command::RemoveWorktree { .. }
             ) {
                 self.pinned_repository.clone()
+            } else {
+                None
+            },
+            expected_repository_root: if matches!(
+                command,
+                Command::CreateWorktree { .. }
+                    | Command::OpenWorktree { .. }
+                    | Command::RemoveWorktree { .. }
+            ) {
+                self.repository.as_ref().map(|r| r.root.clone())
             } else {
                 None
             },
@@ -1269,9 +1282,24 @@ impl Menu {
             .or_else(|| self.external_operation.as_ref().map(|(op, _)| op))
         {
             details.push(format!(
-                "Operation {}:{}: {:?}; target {:?}",
-                op.id.session, op.id.serial, op.command, op.context
+                "Operation {}:{}: {}; target {:?}",
+                op.id.session,
+                op.id.serial,
+                if matches!(op.command, Command::SaveSettings { .. }) {
+                    "Save settings".into()
+                } else {
+                    format!("{:?}", op.command)
+                },
+                op.context
             ));
+        }
+        if let Some((_, OperationState::Finished(outcome))) = &self.external_operation {
+            let message = match outcome {
+                Outcome::Success(message)
+                | Outcome::Failed(message)
+                | Outcome::Unknown(message) => message,
+            };
+            details.push(format!("Last operation result: {message}"));
         }
         let status = if self.status.is_empty() {
             match self.external_operation.as_ref().map(|(_, state)| state) {
@@ -1280,6 +1308,12 @@ impl Menu {
                 }
                 Some(OperationState::Pending) => {
                     "Pending operation from another menu session".into()
+                }
+                Some(OperationState::Finished(Outcome::Success(message))) => {
+                    format!("Last result: {message}")
+                }
+                Some(OperationState::Finished(Outcome::Failed(message))) => {
+                    format!("Last failure: {message}")
                 }
                 _ => self.status.clone(),
             }

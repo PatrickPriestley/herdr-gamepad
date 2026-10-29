@@ -1,11 +1,15 @@
+//! herd-gamepad: drive Herdr with a game controller.
+
 mod menu;
 mod menu_render;
 #[cfg(test)] mod menu_tests;
 #[cfg(test)] mod menu_render_tests;
-// herd-gamepad: drive Herdr with a game controller.
 
 mod feedback;
 mod config;
+mod settings;
+mod menu_worker;
+mod menu_runtime;
 mod lifecycle;
 mod logging;
 #[cfg(test)] mod lifecycle_tests;
@@ -27,7 +31,7 @@ use herdr::Runner;
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let code = match args.first().map(String::as_str) {
-        Some("close-menu") => run(feedback::render_from_env),
+        Some("close-menu" | "actions-menu") => run(feedback::render_from_env),
         Some("serve") => run(serve::serve),
         Some("stop") => run(serve::stop),
         Some("logs") => run(serve::logs),
@@ -38,7 +42,7 @@ fn main() {
         Some("mapping") => run(serve::mapping),
         Some("open-mapping") => run(|| herdr::Cli::default().run(&["herdr", "plugin", "pane", "open", "--plugin", config::PLUGIN_ID, "--entrypoint", "mapping"]).map(|_| ())),
         Some("version") | Some("--version") => { println!("herd-gamepad {}", env!("CARGO_PKG_VERSION")); 0 }
-        _ => { eprintln!("usage: herd-gamepad serve|ensure|stop|setup|probe|close-menu|mapping|open-mapping|logs|open-logs|version"); 2 }
+        _ => { eprintln!("usage: herd-gamepad serve|ensure|stop|setup|probe|actions-menu|close-menu|mapping|open-mapping|logs|open-logs|version"); 2 }
     };
     std::process::exit(code);
 }

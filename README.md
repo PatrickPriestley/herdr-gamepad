@@ -42,28 +42,68 @@ there. Moving focus to another pane also returns to Navigate without sending a k
 **Dictate**: hold R3, speak, release. The text is submitted to the agent you were focused
 on; it is dropped if focus moved, the pane has no agent, or the agent is at a dialog.
 
-**Close**: Options opens a popup. Square picks "close pane", Triangle "close space"; once the
-popup names the target, Cross confirms. Circle, Create or Options cancels.
+**Actions**: Options opens a popup with spaces, worktrees, pane actions, close controls,
+settings, logs and controls. D-pad selects rows and Cross activates. Close actions name the
+captured target and require a separate confirmation. Circle goes back; Create or Options closes.
 
 Routine status goes to the log ("Gamepad: show logs"); only errors appear as notifications.
 "Gamepad: show the mapping" shows the full card. "Gamepad: stop" stops listening.
 
 ## Buttons
 
-| Position | Xbox | PlayStation | Navigate | Respond | Interact | Close menu |
+| Position | Xbox | PlayStation | Navigate | Respond | Interact | Actions menu |
 |---|---|---|---|---|---|---|
-| Bottom face | A | Cross | Respond / Interact | Enter | Enter | Confirm |
-| Right face | B | Circle | | To Navigate | To Navigate | Cancel |
-| Left face | X | Square | Zoom | Zoom, to Navigate | Space | Close pane |
-| Top face | Y | Triangle | Next agent | Same, to Navigate | Same, to Navigate | Close space |
-| D-pad | | | Focus pane | Arrows | Arrows | |
+| Bottom face | A | Cross | Respond / Interact | Enter | Enter | Activate |
+| Right face | B | Circle | | To Navigate | To Navigate | Back |
+| Left face | X | Square | Zoom | Zoom, to Navigate | Space | Details / delete text |
+| Top face | Y | Triangle | Next agent | Same, to Navigate | Same, to Navigate | Text character page |
+| D-pad | | | Focus pane | Arrows | Arrows | Select / navigate |
 | Shoulders | LB / RB | L1 / R1 | Prev / next space | Same, to Navigate | Same, to Navigate | |
 | Triggers | LT / RT | L2 / R2 | Prev / next tab | Same, to Navigate | Same, to Navigate | |
-| Back | View | Create | | Escape | Escape | Cancel |
-| Menu | Menu | Options | Close menu | Close menu | Close menu | Cancel |
+| Back | View | Create | | Escape | Escape | Close |
+| Menu | Menu | Options | Actions menu | Actions menu | Actions menu | Close |
 | Right stick | | R3 | Hold to dictate | Hold to dictate | Hold to dictate | |
 
-If the voice button is set to Options, L3 opens the close menu.
+If the voice button is set to Options, L3 opens the actions menu.
+
+## Controller actions menu
+
+Press Options/Menu to open actions (L3 when Menu is your voice button). D-pad selects
+rows, Right opens a submenu, Cross/A activates, and Circle/B or Left goes back.
+Options/Menu or View closes the popup. Finish dictation before opening it.
+
+The menu offers new spaces, worktree creation/open/removal, pane splitting, zoom,
+rename, explicit close confirmations, settings, logs and controls. Text entry uses
+an on-screen character grid: Cross/A inserts, Square/X deletes, Triangle/Y changes
+pages, and Done accepts. Square/X expands long target details outside text entry.
+
+Actions capture the focused pane, tab and workspace. Focus changes dismiss the
+menu. A worker checks the captured identity again before mutation. Creation uses
+`--no-focus`; switching afterward requires the originating session to remain
+interested and its captured focus to still match. Pane splitting uses Herdr's
+intrinsic `--focus` behavior. Worktree removal never supplies force or trust flags;
+dirty checkouts remain protected by Herdr.
+
+Only one mutation runs at a time, including after the popup closes. A timeout or
+lost response leaves its outcome unknown and blocks another mutation. The daemon
+may confirm that an exact close target is absent through a read-only refresh;
+creation, toggle and other inconclusive results remain blocked and are logged.
+Concrete missing-target and protected-worktree refusals release the operation slot.
+Generic creation failures remain unknown because partial Git side effects cannot be
+ruled out. Do not retry an unknown operation without inspecting Herdr state.
+
+Settings support `[ui] labels = "both"` (default), `"playstation"`, or `"xbox"`,
+plus the existing voice button and recording duration. Save preserves unrelated
+TOML and comments, checks the original contents, and atomically replaces the file.
+Cooperative writers use a lock; editors that ignore it can still race the final
+comparison and rename. Conflicts reload the file and discard the stale draft.
+Symlinked config files are left intact; edit their target directly instead of using menu Save.
+Saved controls apply together when the menu exits; unsaved edits are discarded.
+The popup shows labels for the controls currently active until that exit.
+
+After a structural action closes the popup, reopen Actions to see the last result,
+including the actual server-selected checkout path. That result is informational;
+opening the menu does not repeat the action. Branch suggestions include a timestamp.
 
 ## Settings
 
@@ -77,6 +117,9 @@ language = "en"
 [voice]
 button = "rstick"   # rstick, lstick or menu
 max_seconds = 60
+
+[ui]
+labels = "both"    # both, playstation or xbox
 ```
 
 ### Speech model

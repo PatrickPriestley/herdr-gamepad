@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 pub const PLUGIN_ID: &str = "herd.gamepad";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Config { pub model: PathBuf, pub language: String, pub voice_button: Btn, pub max_seconds: u64 }
+pub struct Config { pub labels: crate::menu::LabelStyle, pub model: PathBuf, pub language: String, pub voice_button: Btn, pub max_seconds: u64 }
 
 /// (state dir, config dir), as Herdr sets them for a plugin process, with the documented fallbacks.
 pub fn dirs() -> (PathBuf, PathBuf) {
@@ -55,7 +55,13 @@ pub fn parse(text: &str, state: &Path) -> Result<Config, String> {
         other => return Err(format!("config.toml: voice.button {other:?} is not one of rstick, lstick, menu")),
     };
     let max_seconds = integer(&t, "voice", "max_seconds")?.unwrap_or(60).clamp(1, 3600) as u64;
-    Ok(Config { model, language, voice_button, max_seconds })
+    let labels = match string(&t, "ui", "labels")?.unwrap_or("both") {
+        "both" => crate::menu::LabelStyle::Both,
+        "playstation" => crate::menu::LabelStyle::PlayStation,
+        "xbox" => crate::menu::LabelStyle::Xbox,
+        other => return Err(format!("config.toml: unknown ui.labels {other:?}")),
+    };
+    Ok(Config { labels, model, language, voice_button, max_seconds })
 }
 
 /// `[a] b` as a string: None when absent, an error when present with another type.
