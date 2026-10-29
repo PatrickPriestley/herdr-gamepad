@@ -114,7 +114,11 @@ No custom Herdr patch is required.**
 Tilt the right stick up/down to scroll the selected pane, including when expanded.
 By default this scrolls terminal history; stronger tilt moves more rows.
 
-For **Codex or Claude fullscreen conversations**, open **Gamepad actions → Settings**,
+**Known blocker on Herdr 0.9.1:** its agent API rejects Page Up/Page Down key names.
+Leave **Agent scrolling (experimental)** off on that version; the current agent route
+does not scroll conversations. Terminal-history scrolling remains available.
+
+The experimental controls, pending compatible API support, are **Gamepad actions → Settings**:
 turn **Agent scrolling (experimental)** on, save, and close the menu. The stick then
 sends one Page Up/Down press at a time through Herdr's agent API: gentle tilt repeats
 about every 600 ms, full tilt about every 300 ms. Other panes keep terminal-history
