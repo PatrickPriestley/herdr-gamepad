@@ -1027,3 +1027,80 @@ fn horizontal_repeat_is_retired_when_editor_is_cancelled_while_direction_held() 
         .ends_with("New space"));
     assert!(h.runtime.repeat.is_none());
 }
+
+#[test]
+fn late_settings_save_waits_for_recording_and_transcription_before_rebinding() {
+    for completion in [
+        engine::Input::Transcript("hello".into()),
+        engine::Input::TranscriptFailed("cancelled".into()),
+    ] {
+        let mut h = harness();
+        open(&mut h);
+        input(&mut h, engine::Input::Press(Btn::Menu));
+        input(&mut h, engine::Input::Release(Btn::Menu));
+        assert!(!input(&mut h, engine::Input::Press(Btn::RStick)));
+        assert_eq!(
+            h.core.handle(
+                engine::Input::Press(Btn::RStick),
+                &engine::Snapshot::default()
+            ),
+            vec![engine::Action::StartRecording]
+        );
+        let mut saved = h.runtime.active.clone();
+        saved.voice_button = Btn::LStick;
+        saved.max_seconds = 30;
+        let mut cfg = h.cfg.clone();
+        cfg.voice_button = Btn::LStick;
+        cfg.max_seconds = 30;
+        h.completions
+            .send(Completion {
+                id: RequestId {
+                    session: 1,
+                    serial: 1,
+                },
+                outcome: Outcome::Success("Saved".into()),
+                workspace: None,
+                pane: None,
+                worktree: None,
+                committed: Some((saved, cfg)),
+                conflict: None,
+            })
+            .unwrap();
+        tick(&mut h);
+        assert_eq!(
+            h.cfg.voice_button,
+            Btn::RStick,
+            "a late save must not rebind a recording"
+        );
+        assert_eq!(h.cfg.max_seconds, 60, "runtime settings activate together");
+        assert!(!input(&mut h, engine::Input::Release(Btn::RStick)));
+        assert_eq!(
+            h.core.handle(
+                engine::Input::Release(Btn::RStick),
+                &engine::Snapshot::default()
+            ),
+            vec![engine::Action::StopRecording]
+        );
+        tick(&mut h);
+        assert_eq!(
+            h.cfg.voice_button,
+            Btn::RStick,
+            "keep the recording's configuration through transcription"
+        );
+        assert!(!input(&mut h, completion.clone()));
+        h.core.handle(completion, &engine::Snapshot::default());
+        tick(&mut h);
+        assert_eq!(h.cfg.voice_button, Btn::LStick);
+        assert_eq!(h.cfg.max_seconds, 30);
+        assert_eq!(h.runtime.active.voice_button, Btn::LStick);
+        assert!(h.runtime.committed.is_none());
+        assert!(!input(&mut h, engine::Input::Press(Btn::LStick)));
+        assert_eq!(
+            h.core.handle(
+                engine::Input::Press(Btn::LStick),
+                &engine::Snapshot::default()
+            ),
+            vec![engine::Action::StartRecording]
+        );
+    }
+}

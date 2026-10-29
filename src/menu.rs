@@ -9,6 +9,38 @@ pub enum LabelStyle {
     PlayStation,
     Xbox,
 }
+
+impl LabelStyle {
+    pub fn button(self, button: Btn) -> &'static str {
+        match (self, button) {
+            (Self::Both, Btn::A) => "✕ Cross/A",
+            (Self::Both, Btn::B) => "○ Circle/B",
+            (Self::Both, Btn::X) => "□ Square/X",
+            (Self::Both, Btn::Y) => "△ Triangle/Y",
+            (Self::Both, Btn::Menu) => "Options/Menu",
+            (Self::Both, Btn::View) => "Create/Share/View",
+            (Self::Both, Btn::LStick) => "L3/Left stick",
+            (Self::Both, Btn::RStick) => "R3/Right stick",
+            (Self::PlayStation, Btn::A) => "✕ Cross",
+            (Self::PlayStation, Btn::B) => "○ Circle",
+            (Self::PlayStation, Btn::X) => "□ Square",
+            (Self::PlayStation, Btn::Y) => "△ Triangle",
+            (Self::PlayStation, Btn::Menu) => "Options",
+            (Self::PlayStation, Btn::View) => "Create/Share",
+            (Self::PlayStation, Btn::LStick) => "L3",
+            (Self::PlayStation, Btn::RStick) => "R3",
+            (Self::Xbox, Btn::A) => "A",
+            (Self::Xbox, Btn::B) => "B",
+            (Self::Xbox, Btn::X) => "X",
+            (Self::Xbox, Btn::Y) => "Y",
+            (Self::Xbox, Btn::Menu) => "Menu",
+            (Self::Xbox, Btn::View) => "View",
+            (Self::Xbox, Btn::LStick) => "Left stick",
+            (Self::Xbox, Btn::RStick) => "Right stick",
+            _ => button.label(),
+        }
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Context {
     pub workspace: String,
@@ -401,6 +433,37 @@ impl Screen {
         }
     }
 }
+/// A row carries its behavior with its presentation, so reordering rows cannot
+/// change which command a visible label invokes. Only the view crosses IPC.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct MenuRow {
+    view: Row,
+    action: RowAction,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum RowAction {
+    Open(Screen),
+    Edit(Field),
+    Run(Command),
+    ClosePane,
+    CloseWorkspace,
+    RemoveWorktree(Worktree),
+    CycleLabels,
+    CycleVoice,
+    CycleDuration,
+    SaveSettings,
+    Back,
+    RefreshLogs,
+    None,
+}
+impl RowAction {
+    fn opens_submenu(&self) -> bool {
+        matches!(
+            self,
+            Self::Open(_) | Self::Edit(Field::Label) | Self::ClosePane | Self::CloseWorkspace
+        )
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Frame {
     screen: Screen,
@@ -738,23 +801,21 @@ impl Menu {
         if !matches!(input, Input::Activate | Input::Right) || self.expanded {
             return vec![];
         }
-        let view = self.view();
-        let Some(row) = view.rows.get(view.selected) else {
+        let rows = self.rows();
+        let Some(row) = rows.get(self.frame().selected) else {
             return vec![];
         };
-        if let Some(reason) = &row.disabled {
-            self.status = reason.clone();
+        self.activate_row(row.clone(), input)
+    }
+    fn activate_row(&mut self, row: MenuRow, input: Input) -> Vec<Effect> {
+        if let Some(reason) = row.view.disabled {
+            self.status = reason;
             return vec![];
         }
-        let submenu = matches!(
-            self.frame().screen,
-            Screen::Main | Screen::Worktrees | Screen::Close
-        ) || (self.frame().screen == Screen::Pane && matches!(view.selected, 3 | 5))
-            || (self.frame().screen == Screen::Settings && view.selected == 3);
-        if input == Input::Right && !submenu {
+        if input == Input::Right && !row.action.opens_submenu() {
             return vec![];
         }
-        self.activate()
+        self.activate(row.action)
     }
     fn edit(&mut self, field: Field) {
         let text = match field {
@@ -768,154 +829,70 @@ impl Menu {
     fn confirm(&mut self, command: Command, target: String) {
         self.push(Screen::Confirm { command, target });
     }
-    fn activate(&mut self) -> Vec<Effect> {
-        let selected = self.frame().selected;
-        match self.frame().screen.clone() {
-            Screen::Main => match selected {
-                0 => self.push(Screen::NewSpace),
-                1 => {
-                    self.push(Screen::Worktrees);
+    fn activate(&mut self, action: RowAction) -> Vec<Effect> {
+        match action {
+            RowAction::Open(screen) => {
+                if screen == Screen::Settings {
+                    self.draft = self.settings.clone();
+                }
+                self.push(screen.clone());
+                if matches!(screen, Screen::Worktrees | Screen::CreateWorktree) {
                     return self.start_read(ReadKind::Repository {
                         workspace: self.context.as_ref().unwrap().workspace.clone(),
                     });
                 }
-                2 => self.push(Screen::Pane),
-                3 => self.push(Screen::Close),
-                4 => {
-                    self.draft = self.settings.clone();
-                    self.push(Screen::Settings);
-                }
-                5 => {
-                    self.push(Screen::Logs);
+                if screen == Screen::Logs {
                     return self.start_read(ReadKind::Logs);
                 }
-                6 => self.push(Screen::Controls),
-                _ => {}
-            },
-            Screen::NewSpace => {
-                if selected == 0 {
-                    self.edit(Field::Name)
-                } else {
-                    return self.mutate(Command::CreateSpace {
-                        name: self.space_name.clone(),
-                        cwd: self.context.as_ref().unwrap().directory().unwrap().into(),
-                    });
-                }
             }
-            Screen::Pane => match selected {
-                0 | 1 => {
-                    return self.mutate(Command::Split {
-                        direction: if selected == 0 {
-                            SplitDirection::Right
-                        } else {
-                            SplitDirection::Down
-                        },
-                        cwd: self.context.as_ref().unwrap().directory().unwrap().into(),
-                    })
-                }
-                2 => return self.mutate(Command::ToggleZoom),
-                3 => self.edit(Field::Label),
-                4 => return self.mutate(Command::RenamePane { label: None }),
-                5 => self.confirm(Command::ClosePane, self.pane_target()),
-                6 => {
-                    return self.mutate(Command::RenamePane {
-                        label: Some(self.pane_label.clone()),
-                    })
-                }
-                _ => {}
-            },
-            Screen::Close => {
-                if selected == 0 {
-                    self.confirm(Command::ClosePane, self.pane_target())
-                } else {
-                    let c = self.context.as_ref().unwrap();
-                    self.confirm(
-                        Command::CloseWorkspace,
-                        format!(
-                            "{} [{}] — running processes stop; worktree remains",
-                            c.workspace_label, c.workspace
-                        ),
-                    );
-                }
+            RowAction::Edit(field) => self.edit(field),
+            RowAction::Run(command) => return self.mutate(command),
+            RowAction::ClosePane => self.confirm(Command::ClosePane, self.pane_target()),
+            RowAction::CloseWorkspace => {
+                let c = self.context.as_ref().unwrap();
+                self.confirm(
+                    Command::CloseWorkspace,
+                    format!(
+                        "{} [{}] — running processes stop; worktree remains",
+                        c.workspace_label, c.workspace
+                    ),
+                );
             }
-            Screen::Confirm { command, .. } => {
-                if selected == 0 {
-                    return self.back();
-                } else {
-                    return self.mutate(command);
-                }
-            }
-            Screen::Worktrees => {
-                self.push(match selected {
-                    0 => Screen::CreateWorktree,
-                    1 => Screen::OpenWorktree,
-                    _ => Screen::RemoveWorktree,
-                });
-                if selected == 0 {
-                    return self.start_read(ReadKind::Repository {
-                        workspace: self.context.as_ref().unwrap().workspace.clone(),
-                    });
-                }
-            }
-            Screen::CreateWorktree => {
-                if selected == 0 {
-                    self.edit(Field::Branch)
-                } else {
-                    let r = self.repository.as_ref().unwrap();
-                    return self.mutate(Command::CreateWorktree {
-                        branch: self.branch.clone(),
-                        base: r.base_commit.clone(),
-                        repository: r.root.clone(),
-                    });
-                }
-            }
-            Screen::OpenWorktree => {
-                let e = &self.repository.as_ref().unwrap().entries[selected];
-                return self.mutate(Command::OpenWorktree {
-                    path: e.path.clone(),
-                    workspace: e.workspace.clone(),
-                });
-            }
-            Screen::RemoveWorktree => {
-                let e = &self.repository.as_ref().unwrap().entries[selected];
+            RowAction::RemoveWorktree(e) => {
                 self.confirm(Command::RemoveWorktree{path:e.path.clone(),workspace:e.workspace.clone().unwrap()},format!("Remove checkout {} — branch {} — workspace {}. Stops processes and deletes this checkout.",e.path,e.branch.as_deref().unwrap_or("detached"),e.workspace.as_deref().unwrap()));
             }
-            Screen::Settings => match selected {
-                0 => {
-                    self.draft.labels = match self.draft.labels {
-                        LabelStyle::Both => LabelStyle::PlayStation,
-                        LabelStyle::PlayStation => LabelStyle::Xbox,
-                        LabelStyle::Xbox => LabelStyle::Both,
-                    }
+            RowAction::CycleLabels => {
+                self.draft.labels = match self.draft.labels {
+                    LabelStyle::Both => LabelStyle::PlayStation,
+                    LabelStyle::PlayStation => LabelStyle::Xbox,
+                    LabelStyle::Xbox => LabelStyle::Both,
                 }
-                1 => {
-                    self.draft.voice_button = match self.draft.voice_button {
-                        Btn::RStick => Btn::LStick,
-                        Btn::LStick => Btn::Menu,
-                        _ => Btn::RStick,
-                    }
+            }
+            RowAction::CycleVoice => {
+                self.draft.voice_button = match self.draft.voice_button {
+                    Btn::RStick => Btn::LStick,
+                    Btn::LStick => Btn::Menu,
+                    _ => Btn::RStick,
                 }
-                2 => {
-                    let presets = [15, 30, 60, 120, 300];
-                    self.draft.max_seconds = presets
-                        .iter()
-                        .position(|v| *v == self.draft.max_seconds)
-                        .map(|i| presets[(i + 1) % presets.len()])
-                        .unwrap_or(15);
-                }
-                3 => self.push(Screen::VoiceConfig),
-                4 => {
-                    return self.mutate(Command::SaveSettings {
-                        original: self.settings.clone(),
-                        updated: self.draft.clone(),
-                    })
-                }
-                5 => return self.back(),
-                _ => {}
-            },
-            Screen::Logs => return self.start_read(ReadKind::Logs),
-            Screen::Controls | Screen::VoiceConfig | Screen::Edit(_) => {}
-        };
+            }
+            RowAction::CycleDuration => {
+                let presets = [15, 30, 60, 120, 300];
+                self.draft.max_seconds = presets
+                    .iter()
+                    .position(|v| *v == self.draft.max_seconds)
+                    .map(|i| presets[(i + 1) % presets.len()])
+                    .unwrap_or(15);
+            }
+            RowAction::SaveSettings => {
+                return self.mutate(Command::SaveSettings {
+                    original: self.settings.clone(),
+                    updated: self.draft.clone(),
+                })
+            }
+            RowAction::Back => return self.back(),
+            RowAction::RefreshLogs => return self.start_read(ReadKind::Logs),
+            RowAction::None => {}
+        }
         vec![]
     }
     fn pane_target(&self) -> String {
@@ -1042,7 +1019,7 @@ impl Menu {
         }
         accepted
     }
-    pub fn view(&self) -> View {
+    fn rows(&self) -> Vec<MenuRow> {
         let no_context = self
             .context
             .is_none()
@@ -1060,52 +1037,134 @@ impl Menu {
                 "Repository unavailable".into()
             }
         });
-        let row = |label: String, disabled: Option<String>| Row { label, disabled };
-        let simple = |labels: &[&str]| {
-            labels
-                .iter()
-                .map(|s| row((*s).into(), None))
-                .collect::<Vec<_>>()
+        let row = |label: String, disabled: Option<String>, action| MenuRow {
+            view: Row { label, disabled },
+            action,
         };
-        let rows = match &self.frame().screen {
+        let directory = self
+            .context
+            .as_ref()
+            .and_then(Context::directory)
+            .unwrap_or_default();
+        match &self.frame().screen {
             Screen::Main => vec![
-                row("New space".into(), no_cwd.clone()),
-                row("Worktrees".into(), no_context.clone()),
-                row("Pane actions".into(), no_context.clone()),
-                row("Close…".into(), no_context.clone()),
-                row("Settings".into(), None),
-                row("Logs".into(), None),
-                row("Controls".into(), None),
+                row(
+                    "New space".into(),
+                    no_cwd.clone(),
+                    RowAction::Open(Screen::NewSpace),
+                ),
+                row(
+                    "Worktrees".into(),
+                    no_context.clone(),
+                    RowAction::Open(Screen::Worktrees),
+                ),
+                row(
+                    "Pane actions".into(),
+                    no_context.clone(),
+                    RowAction::Open(Screen::Pane),
+                ),
+                row(
+                    "Close…".into(),
+                    no_context.clone(),
+                    RowAction::Open(Screen::Close),
+                ),
+                row("Settings".into(), None, RowAction::Open(Screen::Settings)),
+                row("Logs".into(), None, RowAction::Open(Screen::Logs)),
+                row("Controls".into(), None, RowAction::Open(Screen::Controls)),
             ],
             Screen::NewSpace => vec![
-                row(format!("Name: {}", self.space_name), None),
+                row(
+                    format!("Name: {}", self.space_name),
+                    None,
+                    RowAction::Edit(Field::Name),
+                ),
                 row(
                     "Create and switch".into(),
                     validate(Field::Name, &self.space_name)
                         .err()
                         .or(no_cwd.clone()),
+                    RowAction::Run(Command::CreateSpace {
+                        name: self.space_name.clone(),
+                        cwd: directory.into(),
+                    }),
                 ),
             ],
             Screen::Pane => vec![
-                row("Split right".into(), no_cwd.clone()),
-                row("Split down".into(), no_cwd),
-                row("Toggle zoom".into(), None),
-                row(format!("Rename pane: {}", self.pane_label), None),
-                row("Clear label".into(), None),
-                row("Close pane".into(), None),
+                row(
+                    "Split right".into(),
+                    no_cwd.clone(),
+                    RowAction::Run(Command::Split {
+                        direction: SplitDirection::Right,
+                        cwd: directory.into(),
+                    }),
+                ),
+                row(
+                    "Split down".into(),
+                    no_cwd,
+                    RowAction::Run(Command::Split {
+                        direction: SplitDirection::Down,
+                        cwd: directory.into(),
+                    }),
+                ),
+                row(
+                    "Toggle zoom".into(),
+                    None,
+                    RowAction::Run(Command::ToggleZoom),
+                ),
+                row(
+                    format!("Rename pane: {}", self.pane_label),
+                    None,
+                    RowAction::Edit(Field::Label),
+                ),
+                row(
+                    "Clear label".into(),
+                    None,
+                    RowAction::Run(Command::RenamePane { label: None }),
+                ),
+                row("Close pane".into(), None, RowAction::ClosePane),
                 row(
                     "Apply pane label".into(),
                     validate(Field::Label, &self.pane_label).err(),
+                    RowAction::Run(Command::RenamePane {
+                        label: Some(self.pane_label.clone()),
+                    }),
                 ),
             ],
-            Screen::Close => simple(&["Close captured pane", "Close captured space"]),
-            Screen::Confirm { .. } => simple(&["Cancel", "Confirm"]),
-            Screen::Worktrees => ["Create worktree", "Open existing", "Remove worktree"]
-                .iter()
-                .map(|s| row((*s).into(), no_repo.clone()))
-                .collect(),
+            Screen::Close => vec![
+                row("Close captured pane".into(), None, RowAction::ClosePane),
+                row(
+                    "Close captured space".into(),
+                    None,
+                    RowAction::CloseWorkspace,
+                ),
+            ],
+            Screen::Confirm { command, .. } => vec![
+                row("Cancel".into(), None, RowAction::Back),
+                row("Confirm".into(), None, RowAction::Run(command.clone())),
+            ],
+            Screen::Worktrees => vec![
+                row(
+                    "Create worktree".into(),
+                    no_repo.clone(),
+                    RowAction::Open(Screen::CreateWorktree),
+                ),
+                row(
+                    "Open existing".into(),
+                    no_repo.clone(),
+                    RowAction::Open(Screen::OpenWorktree),
+                ),
+                row(
+                    "Remove worktree".into(),
+                    no_repo.clone(),
+                    RowAction::Open(Screen::RemoveWorktree),
+                ),
+            ],
             Screen::CreateWorktree => vec![
-                row(format!("Branch: {}", self.branch), None),
+                row(
+                    format!("Branch: {}", self.branch),
+                    None,
+                    RowAction::Edit(Field::Branch),
+                ),
                 row(
                     "Create and switch".into(),
                     validate(Field::Branch, &self.branch)
@@ -1127,6 +1186,19 @@ impl Menu {
                                 })
                                 .map(|_| "Branch already exists".into())
                         }),
+                    RowAction::Run(Command::CreateWorktree {
+                        branch: self.branch.clone(),
+                        base: self
+                            .repository
+                            .as_ref()
+                            .map(|r| r.base_commit.clone())
+                            .unwrap_or_default(),
+                        repository: self
+                            .repository
+                            .as_ref()
+                            .map(|r| r.root.clone())
+                            .unwrap_or_default(),
+                    }),
                 ),
             ],
             Screen::OpenWorktree | Screen::RemoveWorktree => {
@@ -1163,6 +1235,14 @@ impl Menu {
                                             .unwrap_or_default()
                                     ),
                                     disabled,
+                                    if self.frame().screen == Screen::RemoveWorktree {
+                                        RowAction::RemoveWorktree(e.clone())
+                                    } else {
+                                        RowAction::Run(Command::OpenWorktree {
+                                            path: e.path.clone(),
+                                            workspace: e.workspace.clone(),
+                                        })
+                                    },
                                 )
                             })
                             .collect::<Vec<_>>()
@@ -1172,16 +1252,25 @@ impl Menu {
                     vec![row(
                         "No worktrees".into(),
                         Some("No entries in this repository".into()),
+                        RowAction::None,
                     )]
                 } else {
                     rows
                 }
             }
             Screen::Settings => vec![
-                row(format!("Button labels: {:?}", self.draft.labels), None),
                 row(
-                    format!("Voice button: {}", voice_name(self.draft.voice_button)),
+                    format!("Button labels: {:?}", self.draft.labels),
                     None,
+                    RowAction::CycleLabels,
+                ),
+                row(
+                    format!(
+                        "Voice button: {}",
+                        self.draft.labels.button(self.draft.voice_button)
+                    ),
+                    None,
+                    RowAction::CycleVoice,
                 ),
                 row(
                     format!(
@@ -1189,14 +1278,22 @@ impl Menu {
                         self.draft.max_seconds
                     ),
                     None,
+                    RowAction::CycleDuration,
                 ),
-                row("View voice configuration".into(), None),
-                row("Save".into(), None),
-                row("Discard".into(), None),
+                row(
+                    "View voice configuration".into(),
+                    None,
+                    RowAction::Open(Screen::VoiceConfig),
+                ),
+                row("Save".into(), None, RowAction::SaveSettings),
+                row("Discard".into(), None, RowAction::Back),
             ],
-            Screen::Logs => simple(&["Refresh"]),
+            Screen::Logs => vec![row("Refresh".into(), None, RowAction::RefreshLogs)],
             Screen::Controls | Screen::VoiceConfig | Screen::Edit(_) => vec![],
-        };
+        }
+    }
+    pub fn view(&self) -> View {
+        let rows = self.rows().into_iter().map(|r| r.view).collect::<Vec<_>>();
         let global = self
             .stack
             .iter()
@@ -1246,22 +1343,38 @@ impl Menu {
                 "Model and language are read-only".into(),
             ],
             Screen::Logs => self.logs.clone(),
-            Screen::Controls => vec![
-                format!(
-                    "Voice: {}; Menu: {}",
-                    voice_name(self.active_settings.voice_button),
-                    if self.active_settings.voice_button == Btn::Menu {
-                        "L3"
-                    } else {
-                        "Options/Menu"
-                    }
-                ),
-                "D-pad: select; Left/B: back; Right: open submenu".into(),
-                "A/Cross: activate once; Menu/View: close".into(),
-                "X/Square: details; text entry: delete".into(),
-                "Y/Triangle: text page; A/Cross: insert or Done".into(),
-                "Opening the menu returns to Navigate mode".into(),
-            ],
+            Screen::Controls => {
+                let style = self.active_settings.labels;
+                let menu = if self.active_settings.voice_button == Btn::Menu {
+                    Btn::LStick
+                } else {
+                    Btn::Menu
+                };
+                vec![
+                    format!(
+                        "Voice: {}; Menu: {}",
+                        style.button(self.active_settings.voice_button),
+                        style.button(menu)
+                    ),
+                    format!(
+                        "D-pad: select; Left/{}: back; Right: open submenu",
+                        style.button(Btn::B)
+                    ),
+                    format!(
+                        "{}: activate once; {}/{}: close",
+                        style.button(Btn::A),
+                        style.button(menu),
+                        style.button(Btn::View)
+                    ),
+                    format!("{}: details; text entry: delete", style.button(Btn::X)),
+                    format!(
+                        "{}: text page; {}: insert or Done",
+                        style.button(Btn::Y),
+                        style.button(Btn::A)
+                    ),
+                    "Opening the menu returns to Navigate mode".into(),
+                ]
+            }
             Screen::Edit(field) => vec![format!(
                 "Limit: {} characters; X deletes; Y changes page",
                 if *field == Field::Branch { 200 } else { 80 }
@@ -1350,10 +1463,82 @@ impl Menu {
         }
     }
 }
-fn voice_name(button: Btn) -> &'static str {
-    match button {
-        Btn::LStick => "L3",
-        Btn::Menu => "Options/Menu",
-        _ => "R3",
+
+#[cfg(test)]
+mod row_identity_tests {
+    use super::*;
+
+    #[test]
+    fn reordered_pane_rows_keep_their_action_and_submenu_identity() {
+        for (label, expected) in [
+            (
+                "Split right",
+                Command::Split {
+                    direction: SplitDirection::Right,
+                    cwd: "/tmp/project".into(),
+                },
+            ),
+            (
+                "Split down",
+                Command::Split {
+                    direction: SplitDirection::Down,
+                    cwd: "/tmp/project".into(),
+                },
+            ),
+            ("Toggle zoom", Command::ToggleZoom),
+            ("Clear label", Command::RenamePane { label: None }),
+        ] {
+            let mut m = crate::menu_tests::menu();
+            m.push(Screen::Pane);
+            let mut rows = m.rows();
+            rows.reverse();
+            let index = rows.iter().position(|row| row.view.label == label).unwrap();
+            m.frame_mut().selected = index;
+            let row = rows[index].clone();
+            assert!(m.activate_row(row.clone(), Input::Right).is_empty());
+            assert_eq!(
+                m.activate_row(row, Input::Activate)
+                    .iter()
+                    .find_map(|effect| match effect {
+                        Effect::Mutate(op) => Some(&op.command),
+                        _ => None,
+                    }),
+                Some(&expected),
+                "{label}"
+            );
+        }
+        let mut m = crate::menu_tests::menu();
+        m.push(Screen::Pane);
+        let row = m
+            .rows()
+            .into_iter()
+            .find(|row| row.view.label.starts_with("Rename pane:"))
+            .unwrap();
+        // Move the displayed row to index zero: eligibility must not come from index 3.
+        m.frame_mut().selected = 0;
+        m.activate_row(row, Input::Right);
+        assert_eq!(m.editor.as_ref().map(|e| e.field), Some(Field::Label));
+    }
+
+    #[test]
+    fn worktree_row_carries_its_path_when_entries_reorder() {
+        let mut m = crate::menu_tests::menu();
+        m.repository = Some(crate::menu_tests::repository());
+        m.push(Screen::OpenWorktree);
+        let row = m.rows().remove(1);
+        assert!(row.view.label.contains("/tmp/linked"));
+        m.repository.as_mut().unwrap().entries.reverse();
+        m.frame_mut().selected = 0;
+        let effects = m.activate_row(row, Input::Activate);
+        assert_eq!(
+            effects.iter().find_map(|effect| match effect {
+                Effect::Mutate(op) => Some(&op.command),
+                _ => None,
+            }),
+            Some(&Command::OpenWorktree {
+                path: "/tmp/linked".into(),
+                workspace: Some("ws-2".into())
+            })
+        );
     }
 }

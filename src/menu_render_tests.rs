@@ -88,7 +88,7 @@ fn narrow_status_preserves_selected_action_and_voice_menu_footer() {
     v.menu_button = "L3".into();
     let out = render(&v, 80, 5);
     assert!(out.contains("> Confirm"));
-    assert!(out.contains("L3 Close"));
+    assert!(out.contains("L3/Left stick Close"));
 }
 #[test]
 fn editor_renders_limit_tail_and_selected_cell_in_narrow_grid() {
@@ -301,4 +301,16 @@ fn grid_uses_available_columns_and_long_logs_reserve_status() {
     let out = render(&v, 64, 8);
     assert_eq!(out.lines().nth(6), Some("Loading…"));
     assert!(out.lines().last().unwrap().contains("Close"));
+}
+
+#[test]
+fn xbox_editor_keeps_all_actions_on_one_footer_line() {
+    let mut v = view();
+    v.labels = LabelStyle::Xbox;
+    v.editor = Some(TextEditor::new(Field::Name, "Draft".into()));
+    let rendered = render(&v, 64, 5);
+    let footer = rendered.lines().last().unwrap();
+    for action in ["A Insert/Done", "X Delete", "Y Page", "B Cancel"] {
+        assert!(footer.contains(action), "missing {action}: {footer}");
+    }
 }

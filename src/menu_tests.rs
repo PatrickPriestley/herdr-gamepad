@@ -21,7 +21,7 @@ fn settings() -> SettingsSnapshot {
         version: "v1".into(),
     }
 }
-fn menu() -> Menu {
+pub(crate) fn menu() -> Menu {
     Menu::new(
         7,
         Some(context()),
@@ -62,7 +62,7 @@ fn operation(e: Vec<Effect>) -> Operation {
         other => panic!("{other:?}"),
     }
 }
-fn repository() -> Repository {
+pub(crate) fn repository() -> Repository {
     Repository {
         repo_key: "/tmp/project/.git".into(),
         name: "project".into(),
@@ -1168,4 +1168,121 @@ fn retained_failure_is_visible_without_rearming_and_settings_operation_is_named(
     assert!(m.pending().is_none());
     let rev = m.revision();
     assert!(m.input(Input::Activate, rev).is_empty());
+}
+
+#[test]
+fn controls_body_uses_selected_controller_labels_and_voice_binding() {
+    for (style, voice, expected) in [
+        (
+            LabelStyle::PlayStation,
+            Btn::Menu,
+            vec![
+                "Voice: Options; Menu: L3",
+                "Left/○ Circle: back",
+                "✕ Cross: activate once",
+                "L3/Create/Share: close",
+                "□ Square: details",
+                "△ Triangle: text page",
+            ],
+        ),
+        (
+            LabelStyle::Xbox,
+            Btn::RStick,
+            vec![
+                "Voice: Right stick; Menu: Menu",
+                "Left/B: back",
+                "A: activate once",
+                "Menu/View: close",
+                "X: details",
+                "Y: text page",
+            ],
+        ),
+        (
+            LabelStyle::Both,
+            Btn::LStick,
+            vec![
+                "Voice: L3/Left stick; Menu: Options/Menu",
+                "Left/○ Circle/B: back",
+                "✕ Cross/A: activate once",
+                "Options/Menu/Create/Share/View: close",
+                "□ Square/X: details",
+                "△ Triangle/Y: text page",
+            ],
+        ),
+    ] {
+        let mut cfg = settings();
+        cfg.labels = style;
+        cfg.voice_button = voice;
+        let mut m = Menu::new(9, Some(context()), cfg, "n".into(), "b".into());
+        enter(&mut m, 6);
+        let body = m.view().details.join("\n");
+        for label in expected {
+            assert!(body.contains(label), "missing {label:?} in {body:?}");
+        }
+    }
+}
+
+#[test]
+fn pane_row_labels_drive_their_corresponding_actions() {
+    for (label, expected) in [
+        (
+            "Split right",
+            Command::Split {
+                direction: SplitDirection::Right,
+                cwd: "/tmp/project".into(),
+            },
+        ),
+        (
+            "Split down",
+            Command::Split {
+                direction: SplitDirection::Down,
+                cwd: "/tmp/project".into(),
+            },
+        ),
+        ("Toggle zoom", Command::ToggleZoom),
+        ("Clear label", Command::RenamePane { label: None }),
+    ] {
+        let mut m = menu();
+        enter(&mut m, 2);
+        let selected = m.view().rows.iter().position(|r| r.label == label).unwrap();
+        select(&mut m, selected);
+        let op = operation(press(&mut m, Input::Activate));
+        assert_eq!(op.command, expected, "row {label}");
+    }
+}
+
+#[test]
+fn controls_names_all_voice_bindings_in_the_selected_style() {
+    for (style, voices, menus) in [
+        (
+            LabelStyle::PlayStation,
+            ["R3", "L3", "Options"],
+            ["Options", "Options", "L3"],
+        ),
+        (
+            LabelStyle::Xbox,
+            ["Right stick", "Left stick", "Menu"],
+            ["Menu", "Menu", "Left stick"],
+        ),
+        (
+            LabelStyle::Both,
+            ["R3/Right stick", "L3/Left stick", "Options/Menu"],
+            ["Options/Menu", "Options/Menu", "L3/Left stick"],
+        ),
+    ] {
+        for (i, voice) in [Btn::RStick, Btn::LStick, Btn::Menu]
+            .into_iter()
+            .enumerate()
+        {
+            let mut cfg = settings();
+            cfg.labels = style;
+            cfg.voice_button = voice;
+            let mut m = Menu::new(19, None, cfg, "n".into(), "b".into());
+            enter(&mut m, 6);
+            assert_eq!(
+                m.view().details[0],
+                format!("Voice: {}; Menu: {}", voices[i], menus[i])
+            );
+        }
+    }
 }

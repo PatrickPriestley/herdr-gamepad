@@ -1,5 +1,8 @@
 //! Plain-text terminal frames. Only the viewer adds terminal control sequences.
-use crate::menu::{LabelStyle, View};
+use crate::{
+    engine::Btn,
+    menu::{LabelStyle, View},
+};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -52,32 +55,39 @@ fn wrap(text: &str, width: usize) -> Vec<String> {
     lines
 }
 fn legend(style: LabelStyle, editing: bool, menu_button: &str) -> Vec<String> {
-    let close = if menu_button == "L3" {
-        "L3"
-    } else if style == LabelStyle::PlayStation {
-        "Options"
+    let select = style.button(Btn::A);
+    let back = style.button(Btn::B);
+    let details = style.button(Btn::X);
+    let page = style.button(Btn::Y);
+    let close = style.button(if menu_button == "L3" {
+        Btn::LStick
     } else {
-        "Menu"
-    };
-    match (style, editing) {
-        (LabelStyle::Both, false) => vec![format!(
-            "✕ Cross/A Select|○ Circle/B Back|□ Square/X Details|{close} Close"
-        )],
-        (LabelStyle::PlayStation, false) => vec![format!(
-            "✕ Cross Select|○ Circle Back|□ Square Details|{close} Close"
-        )],
-        (LabelStyle::Xbox, false) => vec![format!(
-            "A Select · B Back · X Details · {close}/View Close"
-        )],
-        (LabelStyle::Both, true) => vec![
-            "✕ Cross/A Insert/Done · □ Square/X Delete".into(),
-            "△ Triangle/Y Page · ○ Circle/B Cancel".into(),
-        ],
-        (LabelStyle::PlayStation, true) => vec![
-            "✕ Cross Insert/Done · □ Square Delete".into(),
-            "△ Triangle Page · ○ Circle Cancel".into(),
-        ],
-        (LabelStyle::Xbox, true) => vec!["A Insert/Done · X Delete · Y Page · B Cancel".into()],
+        Btn::Menu
+    });
+    if editing {
+        if style == LabelStyle::Xbox {
+            vec![format!(
+                "{select} Insert/Done · {details} Delete · {page} Page · {back} Cancel"
+            )]
+        } else {
+            vec![
+                format!("{select} Insert/Done · {details} Delete"),
+                format!("{page} Page · {back} Cancel"),
+            ]
+        }
+    } else {
+        match style {
+            LabelStyle::Both => vec![format!(
+                "{select} OK|{back} Back|{details} Info|{close} Close"
+            )],
+            LabelStyle::PlayStation => vec![format!(
+                "{select} Select|{back} Back|{details} Details|{close} Close"
+            )],
+            LabelStyle::Xbox => vec![format!(
+                "{select} Select · {back} Back · {details} Details · {close}/{} Close",
+                style.button(Btn::View)
+            )],
+        }
     }
 }
 pub fn detail_lines(view: &View, width: usize) -> Vec<String> {

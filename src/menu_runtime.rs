@@ -269,6 +269,11 @@ impl MenuRuntime {
         self.apply_config(core, cfg);
     }
     fn apply_config(&mut self, core: &mut Core, cfg: &mut Config) {
+        // A save can complete after dismissal and after another recording starts.
+        // Keep both the release binding and transcription configuration until it ends.
+        if core.voice_busy() {
+            return;
+        }
         if let Some((snapshot, new)) = self.committed.take() {
             self.active = snapshot;
             *cfg = new;
@@ -522,9 +527,10 @@ impl MenuRuntime {
                     m.receive(response);
                 }
             }
-            if !self.is_open() {
-                self.apply_config(core, cfg);
-            }
+        }
+        // Retry deferred activation even when there is no new worker completion.
+        if !self.is_open() {
+            self.apply_config(core, cfg);
         }
         if let Some(p) = &mut self.publisher {
             if p.poll().is_err() {
