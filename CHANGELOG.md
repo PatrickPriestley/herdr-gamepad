@@ -9,6 +9,8 @@
 - Save label and voice preferences with conflict detection and format-preserving atomic writes.
 - Keep ongoing dictation on its original settings when a settings save finishes after the menu closes.
 - Match the Controls help text to the selected PlayStation, Xbox or combined button labels.
+- Install tested macOS release binaries only when checksums and embedded source commits match a clean checkout; otherwise build from source.
+- Publish Apple Silicon and Intel archives with commit metadata and SHA-256 checksums.
 
 ## 0.2.0
 
