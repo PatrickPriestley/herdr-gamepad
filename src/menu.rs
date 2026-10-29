@@ -66,6 +66,7 @@ pub struct SettingsSnapshot {
     pub voice_button: Btn,
     pub max_seconds: u64,
     pub preview_before_send: bool,
+    pub agent_pages: bool,
     pub model: String,
     pub language: String,
     pub config_path: String,
@@ -453,6 +454,7 @@ enum RowAction {
     CycleVoice,
     CycleDuration,
     TogglePreview,
+    ToggleAgentPages,
     SaveSettings,
     Back,
     RefreshLogs,
@@ -886,6 +888,7 @@ impl Menu {
                     .unwrap_or(15);
             }
             RowAction::TogglePreview => self.draft.preview_before_send = !self.draft.preview_before_send,
+            RowAction::ToggleAgentPages => self.draft.agent_pages = !self.draft.agent_pages,
             RowAction::SaveSettings => {
                 return self.mutate(Command::SaveSettings {
                     original: self.settings.clone(),
@@ -1292,6 +1295,11 @@ impl Menu {
                     format!("Preview dictation before sending: {}", if self.draft.preview_before_send { "On" } else { "Off" }),
                     None,
                     RowAction::TogglePreview,
+                ),
+                row(
+                    format!("Agent scrolling (experimental): {}", if self.draft.agent_pages { "On" } else { "Off" }),
+                    None,
+                    RowAction::ToggleAgentPages,
                 ),
                 row("Save".into(), None, RowAction::SaveSettings),
                 row("Discard".into(), None, RowAction::Back),

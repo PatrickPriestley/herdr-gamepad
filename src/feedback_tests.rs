@@ -234,6 +234,7 @@ fn menu_view() -> crate::menu::View {
         voice_button: Btn::RStick,
         max_seconds: 60,
         preview_before_send: false,
+        agent_pages: false,
         model: "model".into(),
         language: "en".into(),
         config_path: "config".into(),

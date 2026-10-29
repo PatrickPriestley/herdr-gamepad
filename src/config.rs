@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 pub const PLUGIN_ID: &str = "herd.gamepad";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Config { pub labels: crate::menu::LabelStyle, pub model: PathBuf, pub language: String, pub voice_button: Btn, pub max_seconds: u64, pub preview_before_send: bool }
+pub struct Config { pub labels: crate::menu::LabelStyle, pub model: PathBuf, pub language: String, pub voice_button: Btn, pub max_seconds: u64, pub preview_before_send: bool, pub agent_pages: bool }
 
 /// (state dir, config dir), as Herdr sets them for a plugin process, with the documented fallbacks.
 pub fn dirs() -> (PathBuf, PathBuf) {
@@ -62,7 +62,8 @@ pub fn parse(text: &str, state: &Path) -> Result<Config, String> {
         other => return Err(format!("config.toml: unknown ui.labels {other:?}")),
     };
     let preview_before_send = boolean(&t, "voice", "preview_before_send")?.unwrap_or(false);
-    Ok(Config { labels, model, language, voice_button, max_seconds, preview_before_send })
+    let agent_pages = boolean(&t, "scroll", "agent_pages")?.unwrap_or(false);
+    Ok(Config { labels, model, language, voice_button, max_seconds, preview_before_send, agent_pages })
 }
 
 /// `[a] b` as a string: None when absent, an error when present with another type.

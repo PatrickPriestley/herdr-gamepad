@@ -7,14 +7,14 @@ fn state() -> PathBuf { PathBuf::from("/tmp/state") }
 #[test]
 fn an_empty_config_gives_the_defaults() {
     let c = parse("", &state()).unwrap();
-    assert_eq!(c, Config { labels: crate::menu::LabelStyle::Both, model: Path::new("/tmp/state/models/ggml-base.en.bin").into(), language: "en".into(), voice_button: Btn::RStick, max_seconds: 60, preview_before_send: false });
+    assert_eq!(c, Config { labels: crate::menu::LabelStyle::Both, model: Path::new("/tmp/state/models/ggml-base.en.bin").into(), language: "en".into(), voice_button: Btn::RStick, max_seconds: 60, agent_pages: false, preview_before_send: false });
 }
 
 #[test]
 fn every_field_can_be_set() {
     let text = "[whisper]\nmodel = \"/m/small.bin\"\nlanguage = \"de\"\n[voice]\nbutton = \"menu\"\nmax_seconds = 20\n";
     let c = parse(text, &state()).unwrap();
-    assert_eq!(c, Config { labels: crate::menu::LabelStyle::Both, model: "/m/small.bin".into(), language: "de".into(), voice_button: Btn::Menu, max_seconds: 20, preview_before_send: false });
+    assert_eq!(c, Config { labels: crate::menu::LabelStyle::Both, model: "/m/small.bin".into(), language: "de".into(), voice_button: Btn::Menu, max_seconds: 20, agent_pages: false, preview_before_send: false });
 }
 
 #[test]
@@ -90,5 +90,16 @@ fn preview_before_send_is_optional_and_strictly_boolean() {
     for value in ["1", "'true'", "[]"] {
         let err = parse(&format!("[voice]\npreview_before_send = {value}"), &state()).unwrap_err();
         assert_eq!(err, "config.toml: voice.preview_before_send must be a boolean");
+    }
+}
+
+#[test]
+fn agent_pages_is_opt_in_and_strictly_boolean() {
+    assert!(parse("[scroll]\nagent_pages = true", &state()).unwrap().agent_pages);
+    assert!(!parse("", &state()).unwrap().agent_pages);
+    assert!(!parse("[scroll]\nagent_pages = false", &state()).unwrap().agent_pages);
+    for value in ["1", "'true'", "[]"] {
+        let err = parse(&format!("[scroll]\nagent_pages = {value}"), &state()).unwrap_err();
+        assert_eq!(err, "config.toml: scroll.agent_pages must be a boolean");
     }
 }
