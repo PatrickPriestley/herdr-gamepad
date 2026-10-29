@@ -280,3 +280,19 @@ fn clear_feedback_reports_actual_command_result_without_enter() {
         assert_eq!(fake.calls().last().unwrap(),&format!("herdr agent send-keys {} ctrl+a ctrl+k",target.pane_id));
     }
 }
+
+#[test]
+fn scrolling_input_is_owned_before_core_and_does_not_require_snapshot() {
+    let mut stick = crate::scrolling::Stick::default();
+    let now = std::time::Instant::now();
+    assert!(crate::serve::observe_scrolling(&mut stick, &Input::ScrollAxis(100), false));
+    assert_eq!(stick.intent(now).map(|i| i.steps), Some(3));
+    assert!(!crate::serve::needs_snapshot(&Input::ScrollAxis(100), Btn::RStick));
+    assert!(!crate::serve::observe_scrolling(&mut stick, &Input::Press(Btn::A), false));
+    assert!(stick.intent(now).is_none());
+    crate::serve::observe_scrolling(&mut stick, &Input::ScrollAxis(0), false);
+    crate::serve::observe_scrolling(&mut stick, &Input::ScrollAxis(100), true);
+    assert!(stick.intent(now).is_none(), "menu and dictation own their input");
+    crate::serve::observe_scrolling(&mut stick, &Input::ScrollAxis(90), false);
+    assert!(stick.intent(now).is_none(), "closing the menu cannot release a held tilt");
+}

@@ -1,4 +1,8 @@
 //! herd-gamepad: drive Herdr with a game controller.
+mod scroll_rpc;
+#[cfg(test)] mod scroll_rpc_tests;
+mod scrolling;
+#[cfg(test)] mod scrolling_tests;
 
 mod menu;
 mod menu_render;

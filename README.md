@@ -103,9 +103,22 @@ Routine status goes to the log ("Gamepad: show logs"); only errors appear as not
 | Triggers | LT / RT | L2 / R2 | Prev / next tab | Same, to Navigate | Same, to Navigate | |
 | Back | View | Create | | Escape | Escape | Close |
 | Menu | Menu | Options | Actions menu | Actions menu | Actions menu | Close |
-| Right stick | | R3 | Hold to dictate | Hold to dictate | Hold to dictate | |
+| Right stick click | | R3 | Hold to dictate | Hold to dictate | Hold to dictate | |
+| Right stick up/down | | | Scroll selected pane | Scroll selected pane | Scroll selected pane | |
 
 If the voice button is set to Options, L3 opens the actions menu.
+
+**Joystick scrolling requires a patched Herdr build exposing `pane.scroll_wheel`.**
+The tested stable Herdr 0.9.1 build does not provide this API. Other controls remain
+usable when the API is missing; attempting to scroll reports that support is unavailable.
+
+Tilt the right stick up/down to scroll the selected pane, including when expanded.
+A stronger tilt scrolls faster. Scrolling uses Herdr's mouse-wheel routing, so the
+pane application decides how wheel events behave. The plugin does not substitute PageUp or inject text. Scrolling pauses during dictation and gamepad menus. After a
+button press, focus change or error, return a tilted stick to the center before
+scrolling again. One wheel request already sent to Herdr can finish after you stop
+(maximum three wheel steps); pending repeats are discarded. The left stick and
+horizontal movement are unchanged.
 
 ## Controller actions menu
 

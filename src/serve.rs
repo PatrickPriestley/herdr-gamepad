@@ -25,6 +25,8 @@ pub fn serve() -> Result<(), String> {
     let mut worker = Transcriber { cancellation: cancellation.clone(), thread: None };
     let mut gilrs = gilrs::Gilrs::new().map_err(|e| format!("gilrs: {e}"))?;
     let mut pad = Pad::new();
+    let mut stick = crate::scrolling::Stick::default();
+    let scroll = crate::scrolling::Worker::new();
     let mut core = Core::new(cfg.voice_button);
     core.set_preview_enabled(cfg.preview_before_send);
     let mut feedback = Feedback::default();
@@ -35,6 +37,11 @@ pub fn serve() -> Result<(), String> {
     while !cancellation.cancelled() {
         core.begin_tick();
         menu.tick(&mut core, &mut cfg);
+        publish_scrolling(&mut stick, &scroll, menu.is_open() || core.voice_busy());
+        if let Some(message) = scroll.take_notice() {
+            crate::logging::event(format_args!("herd-gamepad: {message}"));
+            feedback.emit(&herdr, &toast("Joystick scrolling", &message, Sound::None));
+        }
         if let Some(message)=menu.take_notice(){feedback.emit(&herdr,&toast("Gamepad actions",&message,Sound::Request));}
         let inputs = next_inputs(|| {
             gilrs.next_event()
@@ -42,6 +49,9 @@ pub fn serve() -> Result<(), String> {
         }, &rx);
         for mut input in inputs {
             if cancellation.cancelled() { break; }
+            let is_scroll = observe_scrolling(&mut stick, &input, menu.is_open() || core.voice_busy());
+            publish_scrolling(&mut stick, &scroll, menu.is_open() || core.voice_busy());
+            if is_scroll { continue; }
             if menu.handle(&input, &mut core, &mut cfg) {
                 if let Some(message)=menu.take_notice(){feedback.emit(&herdr,&toast("Gamepad actions",&message,Sound::Request));}
                 continue;
@@ -91,6 +101,7 @@ pub fn serve() -> Result<(), String> {
             }
         }
     }
+    drop(scroll);
     drop(menu);
     drop(recorder);
     drop(worker); // Join/cancel transcription before acknowledging Stop by releasing daemon's lock.
@@ -177,7 +188,7 @@ pub fn needs_snapshot(input: &Input, voice_button: Btn) -> bool {
     match input {
         Input::Press(b) => *b != voice_button,
         Input::Release(b) => *b == voice_button,
-        Input::Connected | Input::Disconnected | Input::TranscriptFailed(_) => false,
+        Input::ScrollAxis(_) | Input::Connected | Input::Disconnected | Input::TranscriptFailed(_) => false,
         Input::Transcript(_) => true,
     }
 }
@@ -192,7 +203,7 @@ pub fn on_snapshot_failure(core: &mut Core, input: Input, err: &str) -> Option<I
         Input::Transcript(_) if core.preview_in_progress() => Some(input),
         Input::Transcript(_) => Some(Input::TranscriptFailed(format!("Herdr unavailable: {err}"))),
         Input::Release(_) | Input::Disconnected | Input::TranscriptFailed(_) => Some(input),
-        Input::Press(_) | Input::Connected => None,
+        Input::ScrollAxis(_) | Input::Press(_) | Input::Connected => None,
     }
 }
 
@@ -305,6 +316,7 @@ Left / right trigger   LT / RT       L2 / R2
 Back / Select          View          Create (PS5) / Share (PS4)
 Menu                   Menu          Options
 Left / right stick     Stick clicks  L3 / R3
+Right stick up/down    Scroll selected pane (patched Herdr required)
 
 NAVIGATE
 D-pad                  Focus a neighbouring pane
@@ -334,6 +346,11 @@ Shoulders, triggers,
   Triangle             Navigate as above and leave Interact
 Focus changes or an agent appearing leave Interact without sending a key.
 PR Tracker: left/right choose categories; Square opens details; up/down move.
+
+SCROLLING (ALL MODES)
+Tilt right stick up/down to scroll the selected or expanded pane.
+Stronger tilt scrolls faster. Return to center after buttons or focus changes.
+Paused during dictation and actions menus. Requires Herdr pane.scroll_wheel.
 
 ACTIONS MENU
 Menu / Options opens actions; if voice uses Menu, use left stick click.
@@ -385,5 +402,19 @@ mod shutdown_tests {
         drop(daemon);
         assert!(Daemon::acquire(&state).unwrap().is_some());
         std::fs::remove_dir_all(state).unwrap();
+    }
+}
+
+/// Process scrolling ownership before menu/core button handling.
+pub(crate) fn observe_scrolling(stick: &mut crate::scrolling::Stick, input: &Input, blocked: bool) -> bool {
+    stick.observe(input);
+    if blocked { stick.suppress(); }
+    matches!(input, Input::ScrollAxis(_))
+}
+fn publish_scrolling(stick: &mut crate::scrolling::Stick, worker: &crate::scrolling::Worker, blocked: bool) {
+    if blocked { stick.suppress(); }
+    if !worker.update(stick.intent(std::time::Instant::now())) {
+        stick.suppress();
+        worker.update(None);
     }
 }
