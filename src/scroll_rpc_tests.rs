@@ -107,9 +107,14 @@ fn scroll_rpc_bounds_silent_and_oversized_servers() {
         .contains("timed out"));
     assert!(start.elapsed() < Duration::from_millis(550));
     let server = Server::new(|_| vec![b'x'; 1024 * 1024 + 1]);
-    assert!(call(&server.path, "pane.list", json!({}))
-        .unwrap_err()
-        .contains("too large"));
+    assert!(crate::scroll_rpc::call_with_budget(
+        &server.path,
+        "pane.list",
+        json!({}),
+        Duration::from_secs(2)
+    )
+    .unwrap_err()
+    .contains("too large"));
 }
 #[test]
 fn scroll_rpc_rejects_invalid_paths_and_missing_socket() {
@@ -154,7 +159,13 @@ fn scroll_rpc_requires_object_result_and_preserves_error_detail() {
 fn scroll_rpc_accepts_large_bounded_reply() {
     let server = Server::new(|request| response(request, json!({"text":"a".repeat(900_000)})));
     assert_eq!(
-        call(&server.path, "pane.list", json!({})).unwrap()["text"]
+        crate::scroll_rpc::call_with_budget(
+            &server.path,
+            "pane.list",
+            json!({}),
+            Duration::from_secs(2)
+        )
+        .unwrap()["text"]
             .as_str()
             .unwrap()
             .len(),
@@ -171,9 +182,9 @@ fn scroll_rpc_checks_gesture_after_connect_before_writing() {
     let listener = UnixListener::bind(&path).unwrap();
     let thread = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().unwrap();
-        stream
-            .set_read_timeout(Some(Duration::from_secs(1)))
-            .unwrap();
+        // The caller owns/closes its stream before this thread is joined, so
+        // read_to_end reaches EOF even when cancellation precedes accept.
+        // macOS can reject timeout options on that already-closed peer.
         let mut bytes = Vec::new();
         let _ = stream.read_to_end(&mut bytes);
         bytes
@@ -220,4 +231,23 @@ fn scroll_rpc_keeps_the_result_after_a_request_was_sent() {
             current.load(Ordering::SeqCst)
         });
     assert!(result.unwrap_err().contains("unknown_method"));
+}
+
+#[test]
+fn scroll_rpc_size_limit_is_independent_of_a_delayed_fixture() {
+    let server = Server::new(|_| {
+        std::thread::sleep(Duration::from_millis(400));
+        vec![b'x'; 1024 * 1024 + 1]
+    });
+    let error = crate::scroll_rpc::call_with_budget(
+        &server.path,
+        "pane.list",
+        json!({}),
+        Duration::from_secs(2),
+    )
+    .unwrap_err();
+    assert!(
+        error.contains("too large"),
+        "expected size limit, got {error}"
+    );
 }

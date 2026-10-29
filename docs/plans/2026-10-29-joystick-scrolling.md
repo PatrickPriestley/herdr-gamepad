@@ -28,7 +28,7 @@ Use vertical right-stick movement to scroll the selected pane in Navigate, Respo
 - Assertion-red checks covered axis adaptation, stick activation, worker dispatch,
   daemon input ownership, unsupported-server notices, response validation and
   expiration before focus lookup.
-- The plugin suite passed 360 unit tests and four integration tests; the existing
+- The plugin suite passed 361 unit tests and four integration tests; the existing
   live-device test remains ignored. Forty-seven guard mutations were killed and
   restored across the gesture/worker and RPC transport code.
 - The companion Herdr change is based on upstream master commit
@@ -41,3 +41,6 @@ Use vertical right-stick movement to scroll the selected pane in Navigate, Respo
 - The quiet-controller concern was disproved: `next_inputs` uses nonblocking polling, returns after an empty poll, and sleeps only 10 ms. The daemon publishes its heartbeat unconditionally on every iteration; `an_idle_tick_is_throttled_and_poll_is_called_once` exercises this path.
 - Recheck the gesture immediately before each wheel socket write. Suppression cancels unsent requests; a request already written cannot be withdrawn, so the documented bound is one in-flight request of at most three wheel steps.
 - Retain the last published gesture epoch after neutral/suppression. A real response error from that gesture remains visible after release, while an older gesture cannot disarm or overwrite feedback for a successor.
+
+## CI fixture follow-up
+- Busy Apple Silicon and Intel runners exposed a race between the 300 ms deadline and the large-response fixture. A delayed fixture reproduced the timeout deterministically. Size/framing tests now use a test-only two-second budget; normal calls and the silent-server test retain the production 300 ms budget. Both size and timeout guards were mutation-checked again.

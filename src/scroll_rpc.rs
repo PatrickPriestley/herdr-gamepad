@@ -24,10 +24,20 @@ pub fn call_if_current(
     params: Value,
     still_current: &dyn Fn() -> bool,
 ) -> Result<Option<Value>, String> {
+    exchange(socket, method, params, still_current, DEADLINE)
+}
+
+fn exchange(
+    socket: &Path,
+    method: &str,
+    params: Value,
+    still_current: &dyn Fn() -> bool,
+    budget: Duration,
+) -> Result<Option<Value>, String> {
     if !still_current() {
         return Ok(None);
     }
-    let deadline = Instant::now() + DEADLINE;
+    let deadline = Instant::now() + budget;
     let mut stream = connect(socket, deadline)?;
     let mut request = serde_json::to_vec(&json!({"id":ID,"method":method,"params":params}))
         .map_err(|e| e.to_string())?;
@@ -167,4 +177,15 @@ fn connect(path: &Path, deadline: Instant) -> Result<UnixStream, String> {
         }
         return Ok(stream);
     }
+}
+
+#[cfg(test)]
+pub(crate) fn call_with_budget(
+    socket: &Path,
+    method: &str,
+    params: Value,
+    budget: Duration,
+) -> Result<Value, String> {
+    exchange(socket, method, params, &|| true, budget)?
+        .ok_or_else(|| "Herdr request cancelled".into())
 }
