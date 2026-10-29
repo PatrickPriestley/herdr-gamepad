@@ -85,8 +85,8 @@ impl Workers {
                     ReadJob::Context(s) => ReadDone::Context(s, menu_worker::context(&runner)),
                     ReadJob::Read(r) => {
                         let result = match r.kind {
-                            ReadKind::Repository { workspace } => {
-                                menu_worker::repository(&runner, &workspace)
+                            ReadKind::Repository { context } => {
+                                menu_worker::repository_for_context(&runner, &context)
                                     .map(ReadData::Repository)
                             }
                             ReadKind::Logs => crate::logging::tail(&log_state)

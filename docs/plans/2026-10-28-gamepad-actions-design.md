@@ -45,7 +45,7 @@ Closing a pane or space shows a confirmation screen with its label, ID, and the 
 
 ### R5: Worktree operations
 
-Use `worktree list --workspace <captured-id>` to resolve the repository and source checkout. Present the repository name/path in every worktree screen.
+Use `worktree list --workspace <captured-id>` to resolve the repository and source checkout. If Herdr returns exactly `not_git_worktree`, retry with `--cwd` using the captured focused pane’s absolute directory. Never retry trust, transport, or other errors, and never use the daemon directory. Create and Open use the resolved repository root explicitly via `--cwd`; the source commit remains pinned from the resolved checkout. Present the repository name/path in every worktree screen.
 
 Create: suggest an editable unique branch name `gamepad/YYYYMMDD-HHMMSS`. Resolve and pin the source checkout's HEAD commit when the creation form loads. Show the branch, base commit and repository before Create. Validate the branch with Git's ref-name rules and reject existing names. Use an explicit workspace, branch and pinned base; let Herdr choose its normal worktree location. The final location is displayed from the successful response. On success focus the returned new workspace.
 

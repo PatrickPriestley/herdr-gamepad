@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Resolve worktrees from the focused pane when its space was opened outside a Git repository.
+
 - Add the controller actions menu for spaces, worktrees, pane actions, settings, logs and controls.
 - Keep menu input responsive during reads and mutations, preserve pending operations across popup sessions, and require live renderer acknowledgements for activation.
 - Save label and voice preferences with conflict detection and format-preserving atomic writes.

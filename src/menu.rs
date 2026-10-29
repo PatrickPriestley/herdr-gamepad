@@ -77,7 +77,7 @@ pub struct RequestId {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReadKind {
-    Repository { workspace: String },
+    Repository { context: Context },
     Logs,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -838,7 +838,7 @@ impl Menu {
                 self.push(screen.clone());
                 if matches!(screen, Screen::Worktrees | Screen::CreateWorktree) {
                     return self.start_read(ReadKind::Repository {
-                        workspace: self.context.as_ref().unwrap().workspace.clone(),
+                        context: self.context.as_ref().unwrap().clone(),
                     });
                 }
                 if screen == Screen::Logs {

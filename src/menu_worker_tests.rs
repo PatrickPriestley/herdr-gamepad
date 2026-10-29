@@ -280,8 +280,8 @@ fn create_worktree_validates_literal_ref_and_pinned_commit_without_shell() {
             "herdr",
             "worktree",
             "create",
-            "--workspace",
-            "w",
+            "--cwd",
+            "/repo",
             "--branch",
             "feature/a",
             "--base",
@@ -939,8 +939,8 @@ fn argv_covers_each_scoped_action_and_rejects_invalid_directories() {
                 "herdr",
                 "worktree",
                 "open",
-                "--workspace",
-                "w",
+                "--cwd",
+                "/repo",
                 "--path",
                 "/linked",
                 "--no-focus",
@@ -948,7 +948,9 @@ fn argv_covers_each_scoped_action_and_rejects_invalid_directories() {
         ),
     ];
     for (command, expected) in cases {
-        assert_eq!(argv(&op(command)).unwrap(), expected);
+        let mut operation = op(command);
+        operation.expected_repository_root = Some("/repo".into());
+        assert_eq!(argv(&operation).unwrap(), expected);
     }
     for command in [
         Command::CreateSpace {
@@ -1118,4 +1120,99 @@ fn focused_pane_is_the_last_context_read_before_mutation() {
     };
     assert_eq!(context(&r).unwrap().unwrap().pane, "p");
     assert_eq!(*r.calls.borrow(), vec!["workspace", "pane"]);
+}
+
+#[test]
+fn worktrees_resolve_pane_directory_when_space_has_no_repository() {
+    let r = Script::new(vec![
+        Err(r#"{"error":{"code":"not_git_worktree","message":"No workspace repository"}}"#.into()),
+        Ok(repo_json().to_string()),
+        Ok(HASH.into()),
+    ]);
+    let captured = parse_context(&panes(), &spaces()).unwrap().unwrap();
+    let repo = repository_for_context(&r, &captured).unwrap();
+    assert_eq!(repo.repo_key, "key");
+    assert_eq!(
+        r.calls.borrow()[1],
+        vec!["herdr", "worktree", "list", "--cwd", "/foreground"]
+    );
+    for command in [
+        Command::CreateWorktree {
+            branch: "new".into(),
+            base: HASH.into(),
+            repository: "/repo".into(),
+        },
+        Command::OpenWorktree {
+            path: "/linked".into(),
+            workspace: None,
+        },
+    ] {
+        let mut operation = op(command);
+        operation.expected_repository_root = Some(repo.root.clone());
+        let args = argv(&operation).unwrap();
+        assert_eq!(&args[3..5], &["--cwd", "/repo"]);
+    }
+}
+
+#[test]
+fn repository_fallback_does_not_hide_errors_or_guess_directories() {
+    let captured = parse_context(&panes(), &spaces()).unwrap().unwrap();
+    for code in [
+        "untrusted_repository",
+        "workspace_not_found",
+        "not_git_worktree_extra",
+    ] {
+        let error = json!({"error":{"code":code}}).to_string();
+        let r = Script::new(vec![Err(error.clone())]);
+        assert_eq!(repository_for_context(&r, &captured).unwrap_err(), error);
+        assert_eq!(r.calls.borrow().len(), 1);
+    }
+    for cwd in [None, Some("relative".into())] {
+        let mut captured = captured.clone();
+        captured.cwd = cwd;
+        let error = json!({"error":{"code":"not_git_worktree"}}).to_string();
+        let r = Script::new(vec![Err(error.clone())]);
+        assert_eq!(repository_for_context(&r, &captured).unwrap_err(), error);
+    }
+    let r = Script::new(vec![Ok(repo_json().to_string()), Ok(HASH.into())]);
+    assert_eq!(repository_for_context(&r, &captured).unwrap().root, "/repo");
+    assert_eq!(r.calls.borrow().len(), 2);
+}
+
+#[test]
+fn worktree_create_revalidates_fallback_repository_before_dispatch() {
+    let mut operation = op(Command::CreateWorktree {
+        branch: "feature/a".into(),
+        base: HASH.into(),
+        repository: "/repo".into(),
+    });
+    operation.expected_repository = Some("key".into());
+    operation.expected_repository_root = Some("/repo".into());
+    let r = Script::new(vec![
+        Ok(spaces().to_string()),
+        Ok(panes().to_string()),
+        Err(json!({"error":{"code":"not_git_worktree"}}).to_string()),
+        Ok(repo_json().to_string()),
+        Ok(HASH.into()),
+        Ok("".into()),
+        Ok("refs/heads/main\n".into()),
+        Ok(HASH.into()),
+    ]);
+    assert_eq!(&prepare(&r, &operation).unwrap()[3..5], &["--cwd", "/repo"]);
+    assert_eq!(
+        r.calls.borrow()[3],
+        vec!["herdr", "worktree", "list", "--cwd", "/foreground"]
+    );
+    for command in [
+        operation.command.clone(),
+        Command::OpenWorktree {
+            path: "/linked".into(),
+            workspace: None,
+        },
+    ] {
+        let mut operation = op(command);
+        assert!(argv(&operation).is_err());
+        operation.expected_repository_root = Some("/repo".into());
+        assert!(argv(&operation).is_ok());
+    }
 }

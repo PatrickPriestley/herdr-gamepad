@@ -92,8 +92,46 @@ fn json(r: &impl Runner, args: &[&str]) -> Result<Value, String> {
 #[path = "menu_worker_tests.rs"]
 mod tests;
 
+pub fn repository_for_context(r: &impl Runner, context: &Context) -> Result<Repository, String> {
+    let response = json(
+        r,
+        &[
+            "herdr",
+            "worktree",
+            "list",
+            "--workspace",
+            &context.workspace,
+        ],
+    );
+    let value = match response {
+        Err(error)
+            if serde_json::from_str::<Value>(&error)
+                .ok()
+                .is_some_and(|v| v["error"]["code"] == "not_git_worktree")
+                && context.directory().is_some() =>
+        {
+            json(
+                r,
+                &[
+                    "herdr",
+                    "worktree",
+                    "list",
+                    "--cwd",
+                    context.directory().unwrap(),
+                ],
+            )?
+        }
+        other => other?,
+    };
+    parse_repository(r, value)
+}
+
+#[cfg(test)]
 pub fn repository(r: &impl Runner, workspace: &str) -> Result<Repository, String> {
     let v = json(r, &["herdr", "worktree", "list", "--workspace", workspace])?;
+    parse_repository(r, v)
+}
+fn parse_repository(r: &impl Runner, v: Value) -> Result<Repository, String> {
     let source = &v["result"]["source"];
     let root = required(source, "repo_root")?;
     let checkout = required(source, "source_checkout_path")?;
@@ -316,7 +354,7 @@ fn prepare(r: &impl Runner, op: &Operation) -> Result<Vec<String>, String> {
             | Command::OpenWorktree { .. }
             | Command::RemoveWorktree { .. }
     ) {
-        let repo = repository(r, &captured.workspace)?;
+        let repo = repository_for_context(r, captured)?;
         if Some(&repo.repo_key) != op.expected_repository.as_ref() {
             return Err("Repository changed".into());
         }
@@ -462,8 +500,10 @@ pub fn argv(op: &Operation) -> Result<Vec<String>, String> {
             "herdr",
             "worktree",
             "create",
-            "--workspace",
-            &c.workspace,
+            "--cwd",
+            op.expected_repository_root
+                .as_deref()
+                .ok_or("No captured repository root")?,
             "--branch",
             branch,
             "--base",
@@ -478,8 +518,10 @@ pub fn argv(op: &Operation) -> Result<Vec<String>, String> {
             "herdr",
             "worktree",
             "open",
-            "--workspace",
-            &c.workspace,
+            "--cwd",
+            op.expected_repository_root
+                .as_deref()
+                .ok_or("No captured repository root")?,
             "--path",
             path,
             "--no-focus",
