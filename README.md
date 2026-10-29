@@ -57,20 +57,24 @@ there. Moving focus to another pane also returns to Navigate without sending a k
 on; it is dropped if focus moved, the pane has no agent, or the agent is at a dialog.
 
 To review speech before sending, enable **Preview dictation before sending** in
-Actions → Settings, then Save and close the menu. Automatic sending remains the default.
-The preview shows the full transcript and its original destination:
+Actions → Settings, then Save and close the menu. Dictation is inserted directly into
+the focused agent's existing message field, without Enter or a separate popup.
+Press **Cross (Xbox: A)** once to submit after reviewing it. The original agent pane
+must still be focused and available. Pressing a navigation button, opening Actions, pressing Circle, or
+disconnecting cancels the staged Cross submission; the text stays in the editor and
+can be edited or submitted with the keyboard.
 
-- Cross/A sends once; D-pad up/down scrolls the text.
-- Square/X deletes the whole draft.
-- Hold the configured voice button to record a replacement. Empty or failed recordings keep the previous draft.
-- Circle/B goes back without sending. Reopen through Actions → Review voice draft.
+Turn the setting **Off**, Save, and close the menu to restore automatic sending for
+subsequent recordings. Changing the setting never submits or erases text already in
+the editor. A recording already in progress keeps the setting it started with.
 
-Return to the original agent pane before sending. If delivery cannot be confirmed, the
-text remains visible but Send is disabled: inspect the agent before explicitly deleting
-or recording again. Turning preview off never submits a retained draft; a new recording
-still replaces that draft until you send or delete it. Drafts survive controller disconnects,
-but are not restored after stopping or restarting the listener. Preview uses private temporary
-popup files, removed on normal close; draft text is omitted from routine transcript logs.
+Native preview inserts at the editor cursor. Recording again adds text; use the
+agent's normal keyboard editing controls to delete or replace it. Square keeps its
+normal pane action. Dictation whitespace is flattened to spaces and terminal control
+characters are removed so text insertion cannot act as Enter or terminal commands.
+Failed insertion does not enable controller submission; inspect the editor before
+retrying because a failed command may have inserted some text. Preview transcript
+contents are omitted from routine logs.
 
 **Actions**: Options opens a popup with spaces, worktrees, pane actions, close controls,
 settings, logs and controls. D-pad selects rows and Cross activates. Close actions name the
@@ -147,7 +151,7 @@ language = "en"
 [voice]
 button = "rstick"   # rstick, lstick or menu
 max_seconds = 60
-preview_before_send = false  # true: review, send, delete, or record again
+preview_before_send = false  # true: insert in agent input; Cross submits
 
 [ui]
 labels = "both"    # both, playstation or xbox

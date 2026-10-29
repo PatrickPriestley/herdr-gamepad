@@ -19,3 +19,21 @@ Herdr exposes no read/replace-composer API. Agent-specific deletion shortcuts ar
 ## Validation
 
 Assertion-red tests for native insertion instead of popup, Off after prior preview, single Cross submission, target drift, failures, and control-character normalization. Mutation-check changed guards; run suite/source build and different-family review before pushing. Install/restart the tested build for manual controller testing. No merge/release.
+
+## Validation evidence
+
+Both reported failures were captured by assertion-red tests before the fixes. The Off regression covers an acknowledged native insertion followed by saving Off and automatic submission on the next recording. The bridge tests verify no Enter on insertion, target checks before both operations, and propagation of insertion failure. A nonexistent-pane CLI probe confirmed `--` protects text beginning with a hyphen without delivering any input.
+
+317 unit tests and four integration tests pass; one live test remains opt-in. All 57 targeted mutation checks were caught (44 core, five menu/settings, eight bridge/delivery). Forced source build and whitespace checks pass. Physical controller/microphone acceptance remains manual.
+
+A further assertion-red regression caught menu ownership swallowing a Cross release. Resetting the submit latch on menu entry/exit restores the next fresh press; a mutation removing that reset was caught.
+
+## Independent review follow-up
+
+The completed GLM review identified pre-dispatch refusal recovery, stale staging after navigation, same-tick submission, Off notification, stale menu latch, and non-agent error wording. These were fixed with assertion-red tests and mutation checks. Refused-before-send is now distinct from uncertain dispatched outcomes; only the former permits retry. Controller navigation, menus, disconnect and Off discard staged submission. A fresh insertion cannot submit on a Cross event in the same tick.
+
+The suggestion to strip printable escape-sequence residue was not adopted: the sanitizer guarantees no terminal control characters and preserves printable transcript text. A literal `[201~` is harmless text without ESC, as the regression test demonstrates. The input is a speech transcript, not terminal output to be interpreted or reconstructed.
+
+The follow-up review identified transient snapshot failure sharing the menu disarm path. A separate mode/latch reset now preserves staged submission on temporary reads; the regression was observed assertion-red before the correction. Navigation-button cancellation is intentional even when there is only one tab/space: it returns control to the usual navigation bindings and avoids retaining an unexpected Enter capability. README describes cancellation by button press. Deferred-result toast concerns are not reachable in the synchronous dispatch path.
+
+Final focused GLM review completed with `<<AGENT-REVIEW-END>>` and no important issues. Its comment-placement nit was corrected. All verified important findings are resolved; the two documented minor behavior choices remain intentional.

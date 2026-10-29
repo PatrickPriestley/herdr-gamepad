@@ -16,7 +16,6 @@ mod logging;
 #[cfg(test)] mod logging_tests;
 mod engine;
 mod dictation;
-mod voice_preview;
 #[cfg(test)] mod dictation_tests;
 mod herdr;
 mod pad;

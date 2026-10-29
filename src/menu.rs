@@ -160,7 +160,6 @@ pub enum Effect {
     Read(ReadRequest),
     Mutate(Operation),
     Closed,
-    ReviewVoiceDraft,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Outcome {
@@ -385,8 +384,6 @@ pub struct Row {
 }
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct View {
-    #[serde(default)]
-    pub voice_preview: Option<crate::voice_preview::PreviewView>,
     pub revision: u64,
     pub scope: String,
     pub breadcrumb: String,
@@ -456,7 +453,6 @@ enum RowAction {
     CycleVoice,
     CycleDuration,
     TogglePreview,
-    ReviewVoiceDraft,
     SaveSettings,
     Back,
     RefreshLogs,
@@ -502,7 +498,6 @@ pub struct Menu {
     detail_width: usize,
     held: Vec<ActionKey>,
     external_busy: bool,
-    voice_draft_available: bool,
     external_operation: Option<(Operation, OperationState)>,
 }
 impl Menu {
@@ -546,14 +541,10 @@ impl Menu {
             detail_width: 64,
             held: vec![],
             external_busy: false,
-            voice_draft_available: false,
             external_operation: None,
         }
     }
     /// Keep persisted form values independent from the controls active this session.
-    pub fn set_voice_draft_available(&mut self, available: bool) {
-        if self.voice_draft_available != available { self.voice_draft_available=available; self.revision+=1; }
-    }
     pub fn with_active_settings(mut self, active: SettingsSnapshot) -> Self {
         self.active_settings = active;
         self
@@ -842,7 +833,6 @@ impl Menu {
     }
     fn activate(&mut self, action: RowAction) -> Vec<Effect> {
         match action {
-            RowAction::ReviewVoiceDraft => return vec![Effect::ReviewVoiceDraft],
             RowAction::Open(screen) => {
                 if screen == Screen::Settings {
                     self.draft = self.settings.clone();
@@ -1084,7 +1074,6 @@ impl Menu {
                 row("Settings".into(), None, RowAction::Open(Screen::Settings)),
                 row("Logs".into(), None, RowAction::Open(Screen::Logs)),
                 row("Controls".into(), None, RowAction::Open(Screen::Controls)),
-                row("Review voice draft".into(), (!self.voice_draft_available).then(|| "No retained voice draft".into()), RowAction::ReviewVoiceDraft),
             ],
             Screen::NewSpace => vec![
                 row(
@@ -1453,7 +1442,6 @@ impl Menu {
             self.status.clone()
         };
         View {
-            voice_preview: None,
             revision: self.revision,
             scope,
             breadcrumb: self

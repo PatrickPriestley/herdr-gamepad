@@ -1,5 +1,7 @@
 # Optional dictation preview
 
+Superseded by [native dictation preview correction](2026-10-29-native-dictation-preview.md): the user rejected the separate popup. The implementation now inserts into the existing agent input field. The popup decisions below are historical.
+
 Accepted direction: Patrick Priestley, 2026-10-29. The user explicitly approved replacing separate intent/spec/plan PRs with this single implementation plan. PR #13 becomes the feature PR; no merge or release is authorized.
 
 ## Outcome and decisions

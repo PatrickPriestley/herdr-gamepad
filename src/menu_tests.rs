@@ -129,14 +129,14 @@ fn root_navigation_and_scope() {
             "Close…",
             "Settings",
             "Logs",
-            "Controls",
-            "Review voice draft"
+            "Controls"
         ]
     );
     select(&mut m, 99);
-    assert_eq!(m.view().selected, 7);
-    press(&mut m, Input::Up);
     assert_eq!(m.view().selected, 6);
+    press(&mut m, Input::Up);
+    assert_eq!(m.view().selected, 5);
+    press(&mut m, Input::Down);
     press(&mut m, Input::Right);
     assert_eq!(m.view().breadcrumb, "Main / Controls");
     press(&mut m, Input::Back);
@@ -1326,20 +1326,6 @@ fn preview_setting_toggles_in_draft_and_saves_explicitly() {
 }
 
 #[test]
-fn retained_voice_draft_can_be_reopened_from_actions() {
-    let mut m=menu(); m.set_voice_draft_available(true);
-    let index=m.view().rows.iter().position(|r|r.label=="Review voice draft").expect("draft review row");
-    assert_eq!(enter(&mut m,index),vec![Effect::ReviewVoiceDraft]);
-    let mut m=menu();
-    let index=m.view().rows.iter().position(|r|r.label=="Review voice draft").unwrap();
-    assert!(m.view().rows[index].disabled.is_some());
-    assert!(enter(&mut m,index).is_empty());
-}
-
-#[test]
-fn draft_availability_changes_revision_only_when_the_row_changes() {
-    let mut m=menu(); let before=m.revision();
-    m.set_voice_draft_available(true); assert!(m.revision()>before);
-    let ready=m.revision(); m.set_voice_draft_available(true); assert_eq!(m.revision(),ready);
-    m.set_voice_draft_available(false); assert!(m.revision()>ready);
+fn native_preview_has_no_separate_review_menu_action() {
+    assert!(menu().view().rows.iter().all(|row| row.label != "Review voice draft"));
 }

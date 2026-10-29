@@ -1,193 +1,193 @@
-use crate::{engine::*, dictation::DeliveryState};
+use crate::engine::*;
 use crate::engine_tests::snap;
 fn record(c: &mut Core, text: &str, s: &Snapshot) -> Vec<Action> {
     assert_eq!(c.handle(Input::Press(Btn::RStick), s), vec![Action::StartRecording]);
     assert_eq!(c.handle(Input::Release(Btn::RStick), s), vec![Action::StopRecording]);
     c.handle(Input::Transcript(text.into()), s)
 }
-fn draft() -> Core {
+#[test]
+fn preview_inserts_in_native_field_instead_of_retaining_a_popup_draft() {
     let mut c=Core::new(Btn::RStick); c.set_preview_enabled(true);
-    assert!(record(&mut c, "original", &snap()).is_empty());
-    assert_eq!(c.draft().unwrap().text,"original"); c
+    let actions=record(&mut c,"review me",&snap());
+    assert_eq!(actions.len(),1,"must emit native insertion instead of retain popup draft");
+    assert!(!matches!(actions[0],Action::Prompt{..}));
 }
 #[test]
-fn preview_retains_text_while_default_still_sends() {
-    let mut c=Core::new(Btn::RStick);
-    assert!(matches!(record(&mut c,"auto",&snap())[0],Action::Prompt{..}));
-    c.set_preview_enabled(true);
-    assert!(record(&mut c,"  review me  ",&snap()).is_empty());
-    assert_eq!(c.draft().unwrap().text,"review me");
-    assert!(c.take_preview_request()); assert!(!c.take_preview_request());
+fn off_after_a_preview_restores_automatic_submission() {
+    let mut c=Core::new(Btn::RStick); c.set_preview_enabled(true);
+    record(&mut c,"first",&snap()); c.set_preview_enabled(false);
+    assert!(record(&mut c,"second",&snap()).iter().any(|a|matches!(a,Action::Prompt{..})));
+}
+fn native() -> Core { let mut c=Core::new(Btn::RStick); c.set_preview_enabled(true); c }
+fn inserted(c:&mut Core) {
+    record(c,"draft",&snap());
+    c.insertion_result(snap().focused.unwrap(),Ok(()));
+    c.begin_tick();
 }
 #[test]
-fn send_once_clears_only_after_matching_acknowledgement() {
-    let mut c=draft(); let (id, action)=c.draft_send(&snap()).unwrap();
-    assert!(matches!(action,Action::Prompt{ref text,..} if text=="original"));
-    assert_eq!(c.draft().unwrap().state,DeliveryState::Sending);
-    assert!(c.draft_send(&snap()).is_none()); assert!(!c.discard_draft());
-    assert!(!matches!(c.handle(Input::Press(Btn::RStick),&snap()).first(),Some(Action::StartRecording)));
-    c.draft_delivery(id+1,Ok(())); assert!(c.draft().is_some());
-    c.draft_delivery(id,Ok(())); assert!(c.draft().is_none());
+fn acknowledged_insertion_submits_once_on_cross_without_reinserting() {
+    let mut c=native(); inserted(&mut c);
+    assert_eq!(c.handle(Input::Press(Btn::A),&snap()),vec![Action::SubmitText {target:snap().focused.unwrap()}]);
+    assert!(c.handle(Input::Press(Btn::A),&snap()).is_empty());
+    assert!(c.handle(Input::Release(Btn::A),&snap()).is_empty());
+    assert!(c.handle(Input::Press(Btn::A),&snap()).iter().all(|a|!matches!(a,Action::SubmitText{..}|Action::SendKeys{..})));
 }
 #[test]
-fn unknown_delivery_keeps_text_without_retry_and_discard_is_explicit() {
-    let mut c=draft(); let (id,_)=c.draft_send(&snap()).unwrap();
-    c.draft_delivery(id,Err("connection lost".into()));
-    assert!(matches!(c.draft().unwrap().state,DeliveryState::Unknown(_)));
-    assert_eq!(c.draft().unwrap().text,"original"); assert!(c.draft_send(&snap()).is_none());
-    c.draft_delivery(id,Ok(())); assert!(c.draft().is_some());
-    assert!(c.discard_draft()); assert!(c.draft().is_none());
+fn failed_or_stale_insertion_cannot_arm_submit() {
+    let mut c=native(); record(&mut c,"draft",&snap());
+    let mut other=snap().focused.unwrap(); other.pane_id="other".into();
+    assert!(c.insertion_result(other,Ok(())).is_empty());
+    let failed=c.insertion_result(snap().focused.unwrap(),Err("offline".into()));
+    assert!(failed.iter().any(|a|matches!(a,Action::Toast {body,..} if body.contains("offline"))));
+    assert!(c.insertion_result(snap().focused.unwrap(),Ok(())).is_empty());
+    assert!(c.handle(Input::Press(Btn::A),&snap()).iter().all(|a|!matches!(a,Action::SubmitText{..}|Action::SendKeys{..})));
 }
 #[test]
-fn drifted_or_unavailable_target_preserves_draft() {
-    for variant in 0..7 {
-        let mut c=draft(); let mut s=snap(); let p=s.focused.as_mut().unwrap();
-        match variant { 0=>p.pane_id="other".into(),1=>p.workspace_id="other".into(),2=>p.tab_id="other".into(),3=>p.agent=None,4=>p.agent=Some("other".into()),5=>p.status=Some(Status::Blocked),_=>s.focused=None }
-        assert!(c.draft_send(&s).is_none()); assert!(!c.draft().unwrap().error.is_empty());
-        assert!(c.draft_send(&snap()).is_some());
+fn preview_normalizes_whitespace_and_removes_terminal_controls() {
+    let mut c=native();
+    assert_eq!(record(&mut c,"  hello\n\tworld\r\u{1b}[201~\u{7}\u{85}é  ",&snap()),vec![Action::InsertText {target:snap().focused.unwrap(),text:"hello world [201~ é".into()}]);
+    assert_eq!(record(&mut c,"\u{1b}\u{7}\n ",&snap()),vec![toast("Heard nothing","",Sound::None)]);
+}
+#[test]
+fn preview_rejects_drift_before_insertion_and_submission() {
+    for variant in 0..8 {
+        let mut changed=snap(); let p=changed.focused.as_mut().unwrap();
+        match variant {0=>p.pane_id="other".into(),1=>p.workspace_id="other".into(),2=>p.tab_id="other".into(),3=>p.agent=None,4=>p.agent=Some("other".into()),5=>p.status=Some(Status::Blocked),6=>p.status=None,_=>changed.focused=None}
+        let mut c=native(); c.handle(Input::Press(Btn::RStick),&snap());c.handle(Input::Release(Btn::RStick),&snap());
+        let out=c.handle(Input::Transcript("draft".into()),&changed);
+        assert!(matches!(out.first(),Some(Action::Toast{..})));
+        assert!(out.iter().all(|a|!matches!(a,Action::InsertText{..})));
+        let mut c=native(); inserted(&mut c);
+        assert!(c.handle(Input::Press(Btn::A),&changed).iter().all(|a|!matches!(a,Action::SubmitText{..}|Action::SendKeys{..})));
+        c.handle(Input::Release(Btn::A),&changed);
+        assert!(matches!(c.handle(Input::Press(Btn::A),&snap()).first(),Some(Action::SubmitText{..})));
     }
 }
 #[test]
-fn replacement_failure_empty_and_disconnect_keep_draft_and_target() {
-    let mut c=draft(); let target=c.draft().unwrap().target.clone();
-    c.set_preview_enabled(false);
-    assert!(record(&mut c," ",&snap()).iter().all(|a|!matches!(a,Action::Prompt{..})));
-    assert_eq!(c.draft().unwrap().text,"original");
-    c.handle(Input::Press(Btn::RStick),&snap()); c.handle(Input::Release(Btn::RStick),&snap());
-    c.handle(Input::TranscriptFailed("failed".into()),&snap());
-    assert_eq!(c.draft().unwrap().text,"original");
-    c.handle(Input::Disconnected,&snap()); assert!(c.draft().is_some());
-    let mut other=snap(); other.focused.as_mut().unwrap().pane_id="other".into();
-    assert!(record(&mut c,"replacement",&other).is_empty());
-    assert_eq!(c.draft().unwrap().text,"replacement"); assert_eq!(c.draft().unwrap().target,target);
-    assert!(c.draft_send(&other).is_none()); assert!(c.draft_send(&snap()).is_some());
+fn off_clears_staged_state_without_erasing_native_text() {
+    let mut c=native();inserted(&mut c);c.set_preview_enabled(false);
+    assert!(c.handle(Input::Press(Btn::A),&snap()).iter().all(|a|!matches!(a,Action::SubmitText{..}|Action::SendKeys{..})));
+    assert!(record(&mut c,"automatic",&snap()).iter().any(|a|matches!(a,Action::Prompt{..})));
 }
 #[test]
-fn recording_snapshots_preview_choice_and_busy_draft_cannot_send() {
-    let mut c=Core::new(Btn::RStick); c.set_preview_enabled(true);
-    c.handle(Input::Press(Btn::RStick),&snap()); c.set_preview_enabled(false);
-    c.handle(Input::Release(Btn::RStick),&snap()); c.handle(Input::Transcript("one".into()),&snap());
-    assert_eq!(c.draft().unwrap().text,"one");
-    c.handle(Input::Press(Btn::RStick),&snap()); assert!(c.draft_send(&snap()).is_none());
-    c.handle(Input::Release(Btn::RStick),&snap()); assert!(c.draft_send(&snap()).is_none());
-    c.handle(Input::Transcript("two".into()),&snap()); assert!(c.draft_send(&snap()).is_some());
-}
-
-#[test]
-fn recorder_failure_preserves_draft_and_allows_new_recording() {
-    let mut c=draft(); c.handle(Input::Press(Btn::RStick),&snap());
-    c.handle(Input::TranscriptFailed("microphone unavailable".into()),&snap());
-    assert!(!c.voice_busy()); assert_eq!(c.draft().unwrap().text,"original");
-    assert_eq!(c.handle(Input::Press(Btn::RStick),&snap()),vec![Action::StartRecording]);
+fn recording_snapshots_preview_mode_but_next_recording_obeys_off() {
+    let mut c=native(); c.handle(Input::Press(Btn::RStick),&snap()); c.set_preview_enabled(false);
+    c.handle(Input::Release(Btn::RStick),&snap());
+    assert!(matches!(c.handle(Input::Transcript("first".into()),&snap()).first(),Some(Action::InsertText{..})));
+    c.insertion_result(snap().focused.unwrap(),Ok(()));
+    assert!(record(&mut c,"second",&snap()).iter().any(|a|matches!(a,Action::Prompt{..})));
 }
 #[test]
-fn no_target_draft_does_not_retarget_when_rerecorded() {
-    let mut c=Core::new(Btn::RStick); c.set_preview_enabled(true);
-    record(&mut c,"first",&Snapshot::default());
-    assert!(c.draft().is_some()); assert!(c.draft().unwrap().target.is_none());
-    record(&mut c,"second",&snap());
-    assert!(c.draft().unwrap().target.is_none()); assert!(c.draft_send(&snap()).is_none());
-    assert!(c.discard_draft()); record(&mut c,"third",&snap()); assert!(c.draft_send(&snap()).is_some());
+fn cross_during_recording_waits_and_circle_leaves_native_text() {
+    let mut c=native();inserted(&mut c);c.handle(Input::Press(Btn::RStick),&snap());
+    assert!(c.handle(Input::Press(Btn::A),&snap()).iter().all(|a|!matches!(a,Action::SubmitText{..})));
+    c.handle(Input::Release(Btn::A),&snap());c.handle(Input::Release(Btn::RStick),&snap());c.handle(Input::TranscriptFailed("failed".into()),&snap());
+    assert!(matches!(c.handle(Input::Press(Btn::A),&snap()).first(),Some(Action::SubmitText{..})));
+    let mut c=native();inserted(&mut c);
+    assert!(c.handle(Input::Press(Btn::B),&snap()).iter().all(|a|matches!(a,Action::Toast{..})));
+    assert!(c.handle(Input::Press(Btn::A),&snap()).iter().all(|a|!matches!(a,Action::SubmitText{..}|Action::SendKeys{..})));
 }
 #[test]
-fn rejection_before_dispatch_allows_retry_only_for_current_sending_draft() {
-    let mut c=draft(); let id=c.draft().unwrap().id;
-    c.draft_rejected(id,"early".into()); assert!(c.draft().unwrap().error.is_empty());
-    c.draft_send(&snap()).unwrap(); c.draft_rejected(id+1,"stale".into());
-    assert_eq!(c.draft().unwrap().state,DeliveryState::Sending);
-    c.draft_rejected(id,"focus changed".into());
-    assert_eq!(c.draft().unwrap().state,DeliveryState::Ready);
-    assert_eq!(c.draft().unwrap().error,"focus changed"); assert!(c.draft_send(&snap()).is_some());
-}
-
-#[test]
-fn discard_waits_for_replacement_recording_and_transcription() {
-    let mut c = draft();
-    assert_eq!(c.handle(Input::Press(Btn::RStick), &snap()), vec![Action::StartRecording]);
-    assert!(!c.discard_draft(), "recording replacement must retain the previous draft");
-    assert_eq!(c.draft().unwrap().text, "original");
-    c.handle(Input::Release(Btn::RStick), &snap());
-    assert!(!c.discard_draft(), "transcription must retain the previous draft");
-    c.handle(Input::TranscriptFailed("failed".into()), &snap());
-    assert!(c.discard_draft());
-}
-
-#[test]
-fn a_matching_non_agent_pane_cannot_receive_a_voice_draft() {
-    let mut c = Core::new(Btn::RStick);
-    c.set_preview_enabled(true);
-    let mut s = snap();
-    s.focused.as_mut().unwrap().agent = None;
-    assert!(record(&mut c, "not for a shell", &s).is_empty());
-    assert_eq!(c.draft().unwrap().text, "not for a shell");
-    assert!(c.draft_send(&s).is_none());
-    assert!(!c.draft().unwrap().error.is_empty());
-    assert!(c.discard_draft());
-    assert!(record(&mut c, "for an agent", &snap()).is_empty());
-    assert!(c.draft_send(&snap()).is_some());
-}
-
-#[test]
-fn stale_draft_events_without_a_draft_are_ignored() {
-    let mut c = Core::new(Btn::RStick);
-    assert!(c.draft_send(&snap()).is_none());
-    c.draft_delivery(1, Ok(()));
-    c.draft_rejected(1, "stale".into());
-    assert!(!c.discard_draft());
-    c.set_preview_enabled(true);
-    record(&mut c, "valid draft", &snap());
-    let (id, _) = c.draft_send(&snap()).unwrap();
-    c.draft_delivery(id, Ok(()));
-    assert!(c.draft().is_none());
-    c.draft_delivery(id, Ok(()));
-    c.draft_rejected(id, "already completed".into());
-    assert!(c.draft().is_none());
-}
-
-#[test]
-fn replacement_failures_reopen_preview_and_clear_inflight_state() {
-    let mut c = draft();
-    assert!(c.take_preview_request());
-    assert!(!c.preview_in_progress());
-    record(&mut c, "  ", &snap());
-    assert!(!c.preview_in_progress());
-    assert!(c.take_preview_request());
-    assert!(c.draft().unwrap().error.contains("Heard nothing"));
-    c.handle(Input::Press(Btn::RStick), &snap());
-    c.handle(Input::Release(Btn::RStick), &snap());
-    c.handle(Input::TranscriptFailed("bad audio".into()), &snap());
-    assert!(!c.preview_in_progress());
-    assert!(c.take_preview_request());
-    assert!(c.draft().unwrap().error.contains("bad audio"));
-    assert_eq!(c.draft().unwrap().text, "original");
-    assert!(record(&mut c, "replacement", &snap()).is_empty());
-    assert!(!c.preview_in_progress());
-    assert!(c.draft().unwrap().error.is_empty());
-    assert_eq!(c.draft().unwrap().text, "replacement");
-}
-
-#[test]
-fn empty_first_preview_does_not_claim_a_previous_draft_exists() {
-    let mut c=Core::new(Btn::RStick); c.set_preview_enabled(true);
+fn empty_or_failed_recording_does_not_mutate_native_text() {
+    let mut c=native(); inserted(&mut c);
     assert_eq!(record(&mut c," ",&snap()),vec![toast("Heard nothing","",Sound::None)]);
-    record(&mut c,"keep me",&snap());
-    assert_eq!(record(&mut c," ",&snap()),vec![toast("Heard nothing","Previous draft kept",Sound::None)]);
+    c.handle(Input::Press(Btn::RStick),&snap());c.handle(Input::TranscriptFailed("microphone failed".into()),&snap());
+    assert!(!c.voice_busy()); assert!(!c.preview_in_progress());
+    assert!(matches!(c.handle(Input::Press(Btn::A),&snap()).first(),Some(Action::SubmitText{..})));
 }
 
 #[test]
-fn preflight_errors_only_update_the_matching_ready_draft() {
-    let mut c=draft(); let id=c.draft().unwrap().id;
-    c.draft_preflight_failed(id+1,"stale".into());
-    assert!(c.draft().unwrap().error.is_empty());
-    c.draft_preflight_failed(id,"offline".into());
-    assert_eq!(c.draft().unwrap().error,"offline");
-    c.draft_send(&snap()).unwrap();
-    c.draft_preflight_failed(id,"stale".into());
-    assert!(c.draft().unwrap().error.is_empty());
-    c.draft_delivery(id,Err("unknown".into()));
-    c.draft_preflight_failed(id,"stale".into());
-    assert!(c.draft().unwrap().error.is_empty());
-    c.discard_draft();
-    c.draft_preflight_failed(id,"stale".into());
-    assert!(c.draft().is_none());
+fn preview_requires_agent_and_original_target_even_when_both_snapshots_match() {
+    for missing in [false,true] {
+        let mut s=snap();
+        if missing { s.focused=None; } else { s.focused.as_mut().unwrap().agent=None; }
+        let mut c=native();
+        assert!(matches!(record(&mut c,"hello",&s).first(),Some(Action::Toast{..})));
+    }
+}
+#[test]
+fn preview_additional_recording_captures_current_target_and_busy_send_stays_blocked() {
+    let mut c=native(); inserted(&mut c);
+    c.handle(Input::Press(Btn::RStick),&snap()); c.handle(Input::Release(Btn::RStick),&snap());
+    assert!(c.handle(Input::Press(Btn::A),&snap()).iter().all(|a|!matches!(a,Action::SubmitText{..})));
+    c.handle(Input::Release(Btn::A),&snap());
+    c.handle(Input::TranscriptFailed("failed".into()),&snap());
+    let mut changed=snap(); changed.focused.as_mut().unwrap().pane_id="other".into();
+    assert!(matches!(record(&mut c,"more",&changed).first(),Some(Action::InsertText{target,..}) if target.pane_id=="other"));
+}
+#[test]
+fn disabling_cancels_pending_ack_and_preserves_ordinary_navigation() {
+    let mut c=native();record(&mut c,"hello",&snap());c.set_preview_enabled(false);
+    assert!(c.insertion_result(snap().focused.unwrap(),Ok(())).is_empty());
+    assert!(c.handle(Input::Press(Btn::A),&snap()).iter().all(|a|!matches!(a,Action::SubmitText{..})));
+    let mut c=native();inserted(&mut c);c.handle(Input::Press(Btn::Down),&snap());
+    assert!(c.handle(Input::Press(Btn::A),&snap()).iter().all(|a|!matches!(a,Action::SubmitText{..})));
+}
+#[test]
+fn saving_other_settings_while_preview_stays_on_keeps_staged_submit() {
+    let mut c=native(); inserted(&mut c); c.set_preview_enabled(true);
+    assert!(matches!(c.handle(Input::Press(Btn::A),&snap()).first(),Some(Action::SubmitText{..})));
+}
+#[test]
+fn menu_release_ownership_cannot_leave_native_submit_latched() {
+    let mut c=native(); inserted(&mut c);
+    assert!(matches!(c.handle(Input::Press(Btn::A),&snap()).first(),Some(Action::SubmitText{..})));
+    c.menu_exit(); // Opening Actions transfers held-key/release ownership to the menu.
+    c.menu_exit(); // The menu consumed A's release before closing.
+    inserted(&mut c);
+    assert!(matches!(c.handle(Input::Press(Btn::A),&snap()).first(),Some(Action::SubmitText{..})));
+}
+
+#[test]
+fn same_batch_cross_cannot_submit_newly_inserted_text() {
+    let mut c=native(); record(&mut c,"new draft",&snap());
+    c.insertion_result(snap().focused.unwrap(),Ok(()));
+    assert!(c.handle(Input::Press(Btn::A),&snap()).iter().all(|a|!matches!(a,Action::SubmitText{..})));
+    c.begin_tick();
+    assert!(c.handle(Input::Press(Btn::A),&snap()).is_empty());
+    c.handle(Input::Release(Btn::A),&snap());
+    assert!(matches!(c.handle(Input::Press(Btn::A),&snap()).first(),Some(Action::SubmitText{..})));
+}
+#[test]
+fn submission_refusal_before_dispatch_rearms_only_matching_pending_target() {
+    let mut c=native(); inserted(&mut c); let target=snap().focused.unwrap();
+    assert!(c.submission_result(target.clone(),Some("early".into())).is_empty());
+    c.handle(Input::Press(Btn::A),&snap());
+    let mut other=target.clone();other.pane_id="other".into();
+    assert!(c.submission_result(other,Some("stale".into())).is_empty());
+    let out=c.submission_result(target.clone(),Some("focus changed".into()));
+    assert!(matches!(out.first(),Some(Action::Toast {body,..}) if body=="focus changed"));
+    assert!(c.submission_result(target.clone(),Some("duplicate".into())).is_empty());
+    c.handle(Input::Release(Btn::A),&snap());
+    assert!(matches!(c.handle(Input::Press(Btn::A),&snap()).first(),Some(Action::SubmitText{..})));
+    c.submission_result(target.clone(),None);
+    assert!(c.submission_result(target,Some("late failure".into())).is_empty());
+    c.handle(Input::Release(Btn::A),&snap());
+    assert!(c.handle(Input::Press(Btn::A),&snap()).iter().all(|a|!matches!(a,Action::SubmitText{..})));
+}
+#[test]
+fn navigation_disconnect_and_menu_disarm_native_submit() {
+    for button in [Btn::Up,Btn::Down,Btn::Left,Btn::Right,Btn::Lb,Btn::Rb,Btn::Lt,Btn::Rt,Btn::Y] {
+        let mut c=native();inserted(&mut c); c.handle(Input::Press(button),&snap());
+        assert!(c.handle(Input::Press(Btn::A),&snap()).iter().all(|a|!matches!(a,Action::SubmitText{..})),"{button:?}");
+    }
+    for disconnect in [false,true] {
+        let mut c=native(); inserted(&mut c);
+        if disconnect {c.handle(Input::Disconnected,&snap());} else {c.menu_exit();}
+        assert!(c.handle(Input::Press(Btn::A),&snap()).iter().all(|a|!matches!(a,Action::SubmitText{..})));
+    }
+}
+#[test]
+fn shell_recording_explains_that_no_agent_was_selected() {
+    let mut c=native();let mut s=snap();s.focused.as_mut().unwrap().agent=None;
+    assert!(matches!(record(&mut c,"hello",&s).first(),Some(Action::Toast {body,..}) if body.contains("No agent was selected")));
+}
+#[test]
+fn leaving_preview_invalidates_late_submission_refusals() {
+    for kind in 0..4 {
+        let mut c=native(); inserted(&mut c); let target=snap().focused.unwrap();
+        c.handle(Input::Press(Btn::A),&snap());
+        match kind {0=>c.menu_exit(),1=>{c.handle(Input::Disconnected,&snap());},2=>{c.handle(Input::Press(Btn::Lb),&snap());},_=>c.set_preview_enabled(false)}
+        assert!(c.submission_result(target,Some("late".into())).is_empty());
+    }
 }

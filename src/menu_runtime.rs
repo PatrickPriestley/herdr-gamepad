@@ -201,7 +201,6 @@ pub struct MenuRuntime {
     publisher: Option<Publisher>,
     opening: bool,
     notice: Option<String>,
-    review_voice_requested: bool,
     session: u64,
     sequence: u64,
     slot: OperationSlot,
@@ -228,7 +227,6 @@ impl MenuRuntime {
             publisher: None,
             opening: false,
             notice: None,
-            review_voice_requested: false,
             session: 0,
             sequence: 0,
             slot: OperationSlot::default(),
@@ -247,7 +245,6 @@ impl MenuRuntime {
             last_context: Instant::now(),
         })
     }
-    pub fn take_voice_review_request(&mut self) -> bool { std::mem::take(&mut self.review_voice_requested) }
     pub fn take_notice(&mut self) -> Option<String> {
         self.notice.take()
     }
@@ -278,6 +275,9 @@ impl MenuRuntime {
             return;
         }
         if let Some((snapshot, new)) = self.committed.take() {
+            if cfg.preview_before_send && !new.preview_before_send {
+                self.notice = Some("Preview off. Existing input remains unsent; clear or submit it with the keyboard before dictating again.".into());
+            }
             self.active = snapshot;
             *cfg = new;
             core.rebind(cfg.voice_button);
@@ -390,7 +390,6 @@ impl MenuRuntime {
         for effect in effects {
             match effect {
                 Effect::Closed => self.close(core, cfg),
-                Effect::ReviewVoiceDraft => { self.close(core,cfg); self.review_voice_requested=true; },
                 Effect::Read(read) => self.queued_read = Some(read),
                 Effect::Mutate(op) => {
                     if self.slot.reserve(op.clone()) {
@@ -559,7 +558,6 @@ impl MenuRuntime {
                 self.repeat = Some((button, Instant::now() + Duration::from_millis(100)));
             }
         }
-        if let Some(model)=&mut self.model { model.set_voice_draft_available(core.draft().is_some()); }
         self.publish(core, cfg);
         self.schedule();
     }

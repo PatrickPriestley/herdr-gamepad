@@ -314,3 +314,40 @@ fn focused_snapshot_reads_only_live_pane_identity() {
     let f=Fake::new(vec![("herdr pane list",Err("offline"))]);
     assert!(Herdr{runner:f}.focused_snapshot().is_err());
 }
+
+#[test]
+fn native_preview_inserts_without_enter_and_rechecks_the_target() {
+    let target=Herdr { runner:fake() }.focused_snapshot().unwrap().focused.unwrap();
+    let f=Fake::new(vec![("herdr pane list",Ok(PANE_CURRENT)),("herdr pane send-text",Ok("{}"))]);
+    let action=Action::InsertText {target:target.clone(),text:"hello world".into()};
+    Herdr{runner:&f}.apply(&action).unwrap();
+    assert_eq!(f.calls(),["herdr pane list","herdr pane send-text w1M:p1 -- hello world"]);
+    let f=Fake::new(vec![("herdr pane list",Ok(PANE_CURRENT_SHELL))]);
+    assert!(Herdr{runner:&f}.apply(&action).is_err());
+    assert_eq!(f.calls(),["herdr pane list"]);
+    let f=Fake::new(vec![("herdr pane list",Ok(PANE_CURRENT)),("herdr agent send-keys",Ok("{}"))]);
+    Herdr{runner:&f}.apply(&Action::SubmitText {target}).unwrap();
+    assert_eq!(f.calls(),["herdr pane list","herdr agent send-keys w1M:p1 enter"]);
+}
+
+#[test]
+fn native_preview_submit_rejects_drift_and_insertion_propagates_errors() {
+    let target=Herdr { runner:fake() }.focused_snapshot().unwrap().focused.unwrap();
+    let f=Fake::new(vec![("herdr pane list",Ok(PANE_CURRENT_SHELL))]);
+    assert!(Herdr{runner:&f}.apply(&Action::SubmitText {target:target.clone()}).is_err());
+    assert_eq!(f.calls(),["herdr pane list"]);
+    let f=Fake::new(vec![("herdr pane list",Ok(PANE_CURRENT)),("herdr pane send-text",Err("offline"))]);
+    assert_eq!(Herdr{runner:&f}.apply(&Action::InsertText {target,text:"hello".into()}),Err("offline".into()));
+    assert_eq!(f.calls().len(),2);
+}
+
+#[test]
+fn native_submit_distinguishes_refusal_from_uncertain_delivery() {
+    let target=Herdr { runner:fake() }.focused_snapshot().unwrap().focused.unwrap();
+    let f=Fake::new(vec![("herdr pane list",Ok(PANE_CURRENT_SHELL))]);
+    assert!(matches!(Herdr{runner:&f}.submit_native(&target),Err(NativeSubmitError::Refused(_))));
+    assert_eq!(f.calls(),["herdr pane list"]);
+    let f=Fake::new(vec![("herdr pane list",Ok(PANE_CURRENT)),("herdr agent send-keys",Err("lost"))]);
+    assert_eq!(Herdr{runner:&f}.submit_native(&target),Err(NativeSubmitError::Unconfirmed("lost".into())));
+    assert_eq!(f.calls().len(),2);
+}
