@@ -17,7 +17,7 @@ Accepted direction: Patrick Priestley, 2026-10-29. The user explicitly approved 
 1. Config/settings: `src/config.rs`, `src/settings.rs`, `src/menu.rs`, associated tests. Add typed boolean, default, persistence, and menu toggle.
 2. Pure draft lifecycle: `src/engine.rs`, new `src/dictation.rs` and tests. Preserve automatic mode, pin target and mode, retain/re-record/discard drafts, model sending and unknown outcomes.
 3. Preview runtime/presentation: new `src/voice_preview.rs` and tests; `src/feedback.rs`, `src/menu_render.rs`, `src/menu.rs`, `src/menu_runtime.rs`, `src/main.rs`. Reuse the existing popup publisher and viewer acknowledgement; add draft presentation and Actions reopening.
-4. Daemon integration: `src/serve.rs` and tests. Route preview input before normal actions, keep recording/transcription completions flowing, send asynchronously, feed delivery outcomes back, and defer setting changes while voice is busy.
+4. Daemon integration: `src/serve.rs`, `src/herdr.rs`, and tests. Add a focused-pane-only refresh immediately before dispatch. Route preview input before normal actions, keep recording/transcription completions flowing, send asynchronously, feed delivery outcomes back, and defer setting changes while voice is busy.
 5. Documentation: README/CHANGELOG and this plan. Test complete suite and source build, mutation-check touched guards, then complete a different-family review with an explicit end marker before pushing PR #13. Install for controller testing only after software checks pass.
 
 ## Verification
@@ -27,3 +27,17 @@ Each scenario must first fail on an assertion: preview-on yields a retained draf
 Existing seams inspected: Core currently captures the target on voice release, consumes Transcript immediately, and emits Prompt; serve applies Prompt without returning success to Core. Existing Publisher supports revision acknowledgement, viewer lifetime, and terminal width. These seams require explicit draft and delivery state rather than a toast-only preview.
 
 Commands: `cargo test --locked`; `HERD_GAMEPAD_BUILD=source sh scripts/build.sh`; `git diff --check`. Installer and release packaging are unchanged. Hardware acceptance: enable preview, dictate, read/scroll, hide/reopen, record replacement, discard, send once, then disable and verify automatic send.
+
+## Implementation evidence
+
+- Added optional preview setting with strict boolean parsing and format-preserving persistence. The setting is grouped before Save/Discard.
+- Added retained draft state, asynchronous delivery with a final focused-pane check, and a popup using the existing revision/lease protocol. Dead-viewer and held-button regressions prevent Send from leaking into normal agent input.
+- New scenarios were observed assertion-red before their fixes. Guard checks caught 7 settings, 17 popup/renderer, and 35 draft/runtime mutations plus 4 draft-menu routing mutations and 5 review-fix mutations; added tests for the two initial draft guard survivors and reran successfully. No mutation remains in the worktree.
+- Final software verification: 323 unit tests passed, one opt-in live test ignored, all four integration tests passed; forced source build and whitespace checks passed. Existing dead-code warnings remain.
+- Physical controller/microphone acceptance is still required. No automatic delivery was exercised against a live agent during automated testing.
+
+## Review follow-up
+
+The independent GLM review completed with its requested end marker. Three verified UX findings were fixed after assertion-red tests: offline preflight now displays its actual error, an empty first recording no longer claims a previous draft was kept, and the Actions button can immediately reopen after a popup failure while pending face-button presses remain consumed. The proposed unknown-delivery error-loss finding was disproved: `DeliveryState::Unknown` stores the original reason separately from `Draft.error`, and `view()` renders that reason. A regression test covers empty and failed replacement attempts.
+
+The follow-up GLM review completed with `<<AGENT-REVIEW-END>>` and no findings. All 68 targeted mutation checks were caught; the final suite and forced source build passed.

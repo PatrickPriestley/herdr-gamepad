@@ -201,6 +201,7 @@ pub struct MenuRuntime {
     publisher: Option<Publisher>,
     opening: bool,
     notice: Option<String>,
+    review_voice_requested: bool,
     session: u64,
     sequence: u64,
     slot: OperationSlot,
@@ -227,6 +228,7 @@ impl MenuRuntime {
             publisher: None,
             opening: false,
             notice: None,
+            review_voice_requested: false,
             session: 0,
             sequence: 0,
             slot: OperationSlot::default(),
@@ -245,10 +247,11 @@ impl MenuRuntime {
             last_context: Instant::now(),
         })
     }
+    pub fn take_voice_review_request(&mut self) -> bool { std::mem::take(&mut self.review_voice_requested) }
     pub fn take_notice(&mut self) -> Option<String> {
         self.notice.take()
     }
-    fn is_open(&self) -> bool {
+    pub fn is_open(&self) -> bool {
         self.opening || self.model.is_some()
     }
     fn close(&mut self, core: &mut Core, cfg: &mut Config) {
@@ -278,6 +281,7 @@ impl MenuRuntime {
             self.active = snapshot;
             *cfg = new;
             core.rebind(cfg.voice_button);
+            core.set_preview_enabled(cfg.preview_before_send);
         }
     }
     /// true means consumed; call before normal-mode snapshot acquisition.
@@ -386,6 +390,7 @@ impl MenuRuntime {
         for effect in effects {
             match effect {
                 Effect::Closed => self.close(core, cfg),
+                Effect::ReviewVoiceDraft => { self.close(core,cfg); self.review_voice_requested=true; },
                 Effect::Read(read) => self.queued_read = Some(read),
                 Effect::Mutate(op) => {
                     if self.slot.reserve(op.clone()) {
@@ -554,6 +559,7 @@ impl MenuRuntime {
                 self.repeat = Some((button, Instant::now() + Duration::from_millis(100)));
             }
         }
+        if let Some(model)=&mut self.model { model.set_voice_draft_available(core.draft().is_some()); }
         self.publish(core, cfg);
         self.schedule();
     }

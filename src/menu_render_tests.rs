@@ -2,6 +2,7 @@ use crate::menu::*;
 use crate::menu_render::*;
 fn view() -> View {
     View {
+        voice_preview: None,
         revision: 4,
         scope: "Project [ws-1] / Shell [pane-1]".into(),
         breadcrumb: "Main / Close…".into(),
@@ -313,4 +314,36 @@ fn xbox_editor_keeps_all_actions_on_one_footer_line() {
     for action in ["A Insert/Done", "X Delete", "Y Page", "B Cancel"] {
         assert!(footer.contains(action), "missing {action}: {footer}");
     }
+}
+
+#[test]
+fn voice_preview_shows_scrollable_unicode_draft_and_style_controls() {
+    let mut v = view();
+    v.voice_preview = Some(crate::voice_preview::PreviewView {
+        text: "猫".repeat(90),
+        destination: "Agent [w1:p2]".into(),
+        status: "Ready to send".into(),
+        voice_button: "R3".into(),
+    });
+    v.labels = LabelStyle::PlayStation;
+    let first = render(&v, 40, 12);
+    assert!(first.contains("Voice message"));
+    assert!(first.contains("Cross Send"));
+    assert!(first.contains("Square Delete"));
+    assert!(first.contains("Circle Back"));
+    assert!(first.contains("Hold R3"));
+    assert!(first.contains("w1:p2"));
+    assert!(!first.contains("Select"));
+    assert!(first
+        .lines()
+        .all(|l| unicode_width::UnicodeWidthStr::width(l) <= 40));
+    assert!(first.lines().count() <= 12);
+    v.voice_preview.as_mut().unwrap().text = "head ".repeat(50) + "TAIL";
+    let first = render(&v, 40, 12);
+    v.scroll = 6;
+    let last = render(&v, 40, 12);
+    assert_ne!(first, last);
+    assert!(last.contains("TAIL"));
+    v.labels = LabelStyle::Xbox;
+    assert!(render(&v, 40, 12).contains("A Send"));
 }

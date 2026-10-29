@@ -305,3 +305,12 @@ fn interact_routes_non_agent_keys_through_pane_interface() {
         assert_eq!(argv_for(&actions[0]),vec!["herdr","pane","send-keys","w5:p2",key]);
     }
 }
+
+#[test]
+fn focused_snapshot_reads_only_live_pane_identity() {
+    let f=fake(); let s=Herdr{runner:&f}.focused_snapshot().unwrap();
+    assert_eq!(s.focused.unwrap().pane_id,"w1M:p1");
+    assert_eq!(f.calls(),vec!["herdr pane list"]);
+    let f=Fake::new(vec![("herdr pane list",Err("offline"))]);
+    assert!(Herdr{runner:f}.focused_snapshot().is_err());
+}

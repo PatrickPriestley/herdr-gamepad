@@ -26,12 +26,16 @@ pub fn serve() -> Result<(), String> {
     let mut gilrs = gilrs::Gilrs::new().map_err(|e| format!("gilrs: {e}"))?;
     let mut pad = Pad::new();
     let mut core = Core::new(cfg.voice_button);
+    core.set_preview_enabled(cfg.preview_before_send);
+    let mut voice_preview = crate::voice_preview::VoicePreview::new(cancellation.clone(), state.clone());
     let mut feedback = Feedback::default();
     let mut menu = crate::menu_runtime::MenuRuntime::new(cancellation.clone(), state.clone(), crate::config::dirs().1.join("config.toml"))?;
     let mut recorder: Option<Recorder> = None;
     let (tx, rx) = mpsc::channel::<Input>();
     crate::logging::event(format_args!("herd-gamepad: listening; {} controller(s) connected; hold {} to talk", gilrs.gamepads().count(), cfg.voice_button.label()));
     while !cancellation.cancelled() {
+        voice_preview.tick(&mut core, &cfg);
+        if let Some(message)=voice_preview.take_notice(){feedback.emit(&herdr,&toast("Voice preview",&message,Sound::Request));}
         menu.tick(&mut core, &mut cfg);
         if let Some(message)=menu.take_notice(){feedback.emit(&herdr,&toast("Gamepad actions",&message,Sound::Request));}
         let inputs = next_inputs(|| {
@@ -40,7 +44,13 @@ pub fn serve() -> Result<(), String> {
         }, &rx);
         for mut input in inputs {
             if cancellation.cancelled() { break; }
+            if voice_preview.handle(&input, &mut core, &cfg) {
+                // Menu may still own the release of the button that opened Review draft.
+                forward_overlay_release(&input, &mut menu, &mut core, &mut cfg);
+                continue;
+            }
             if menu.handle(&input, &mut core, &mut cfg) {
+                if menu.take_voice_review_request() { voice_preview.open(&core, &cfg); }
                 if let Some(message)=menu.take_notice(){feedback.emit(&herdr,&toast("Gamepad actions",&message,Sound::Request));}
                 continue;
             }
@@ -58,7 +68,8 @@ pub fn serve() -> Result<(), String> {
                 }
             };
             if cancellation.cancelled() { break; }
-            crate::logging::event(format_args!("herd-gamepad: {} in {:?}", describe(&input), core.mode()));
+            let description = describe_for_log(&input, &core);
+            crate::logging::event(format_args!("herd-gamepad: {} in {:?}", description, core.mode()));
             let actions=core.handle(input,&snap);
             let mut recording_error=None;
             apply_actions(&herdr, actions, &mut feedback, |action| {
@@ -78,14 +89,23 @@ pub fn serve() -> Result<(), String> {
                     _ => unreachable!("only recording actions are delegated"),
                 }
             });
-            if let Some(e)=recording_error {feedback.emit(&herdr,&toast("Recording failed",&e,Sound::Request));}
+            if let Some(e)=recording_error {
+                core.handle(Input::TranscriptFailed(e.clone()), &snap);
+                feedback.emit(&herdr,&toast("Recording failed",&e,Sound::Request));
+            }
+            if core.take_preview_request() { voice_preview.open(&core, &cfg); }
         }
     }
+    drop(voice_preview);
     drop(menu);
     drop(recorder);
     drop(worker); // Join/cancel transcription before acknowledging Stop by releasing daemon's lock.
     crate::logging::event(format_args!("herd-gamepad: stopped"));
     Ok(())
+}
+
+pub(crate) fn forward_overlay_release(input: &Input, menu: &mut crate::menu_runtime::MenuRuntime, core: &mut Core, cfg: &mut Config) {
+    if matches!(input, Input::Release(_)) { menu.handle(input, core, cfg); }
 }
 
 /// One daemon tick: completed voice, then at most 64 nonblocking controller events.
@@ -143,10 +163,17 @@ pub fn needs_snapshot(input: &Input, voice_button: Btn) -> bool {
 pub fn on_snapshot_failure(core: &mut Core, input: Input, err: &str) -> Option<Input> {
     core.menu_exit();
     match input {
+        Input::Transcript(_) if core.preview_in_progress() => Some(input),
         Input::Transcript(_) => Some(Input::TranscriptFailed(format!("Herdr unavailable: {err}"))),
         Input::Release(_) | Input::Disconnected | Input::TranscriptFailed(_) => Some(input),
         Input::Press(_) | Input::Connected => None,
     }
+}
+
+pub(crate) fn describe_for_log(input: &Input, core: &Core) -> String {
+    if core.preview_in_progress() && matches!(input, Input::Transcript(_)) {
+        "Transcript ready for preview".into()
+    } else { describe(input) }
 }
 
 /// An input for the log: a transcript as its first 60 characters, everything else as is.

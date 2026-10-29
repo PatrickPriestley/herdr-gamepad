@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 pub const PLUGIN_ID: &str = "herd.gamepad";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Config { pub labels: crate::menu::LabelStyle, pub model: PathBuf, pub language: String, pub voice_button: Btn, pub max_seconds: u64 }
+pub struct Config { pub labels: crate::menu::LabelStyle, pub model: PathBuf, pub language: String, pub voice_button: Btn, pub max_seconds: u64, pub preview_before_send: bool }
 
 /// (state dir, config dir), as Herdr sets them for a plugin process, with the documented fallbacks.
 pub fn dirs() -> (PathBuf, PathBuf) {
@@ -61,7 +61,8 @@ pub fn parse(text: &str, state: &Path) -> Result<Config, String> {
         "xbox" => crate::menu::LabelStyle::Xbox,
         other => return Err(format!("config.toml: unknown ui.labels {other:?}")),
     };
-    Ok(Config { labels, model, language, voice_button, max_seconds })
+    let preview_before_send = boolean(&t, "voice", "preview_before_send")?.unwrap_or(false);
+    Ok(Config { labels, model, language, voice_button, max_seconds, preview_before_send })
 }
 
 /// `[a] b` as a string: None when absent, an error when present with another type.
@@ -77,6 +78,13 @@ fn integer(t: &toml::Table, a: &str, b: &str) -> Result<Option<i64>, String> {
     match t.get(a).and_then(|v| v.get(b)) {
         None => Ok(None),
         Some(v) => v.as_integer().map(Some).ok_or_else(|| format!("config.toml: {a}.{b} must be an integer")),
+    }
+}
+
+fn boolean(t: &toml::Table, a: &str, b: &str) -> Result<Option<bool>, String> {
+    match t.get(a).and_then(|v| v.get(b)) {
+        None => Ok(None),
+        Some(v) => v.as_bool().map(Some).ok_or_else(|| format!("config.toml: {a}.{b} must be a boolean")),
     }
 }
 

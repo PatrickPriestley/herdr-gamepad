@@ -15,6 +15,7 @@ fn settings() -> SettingsSnapshot {
         labels: LabelStyle::Both,
         voice_button: Btn::RStick,
         max_seconds: 47,
+        preview_before_send: false,
         model: "/models/base.bin".into(),
         language: "en".into(),
         config_path: "/config.toml".into(),
@@ -37,6 +38,10 @@ fn press(m: &mut Menu, input: Input) -> Vec<Effect> {
         }
         m.input(input, m.revision())
     }
+}
+fn enter_label(m: &mut Menu, label: &str) -> Vec<Effect> {
+    let index = m.view().rows.iter().position(|r| r.label == label).expect("menu row");
+    enter(m, index)
 }
 fn select(m: &mut Menu, index: usize) {
     for _ in 0..30 {
@@ -124,10 +129,13 @@ fn root_navigation_and_scope() {
             "Close…",
             "Settings",
             "Logs",
-            "Controls"
+            "Controls",
+            "Review voice draft"
         ]
     );
     select(&mut m, 99);
+    assert_eq!(m.view().selected, 7);
+    press(&mut m, Input::Up);
     assert_eq!(m.view().selected, 6);
     press(&mut m, Input::Right);
     assert_eq!(m.view().breadcrumb, "Main / Controls");
@@ -353,7 +361,7 @@ fn settings_preserve_custom_and_save_explicitly() {
     enter(&mut m, 1);
     assert!(m.view().rows[1].label.contains("L3"));
     assert!(m.pending().is_none());
-    let op = operation(enter(&mut m, 4));
+    let op = operation(enter_label(&mut m, "Save"));
     match op.command {
         Command::SaveSettings { original, updated } => {
             assert_eq!(original.version, "v1");
@@ -365,7 +373,7 @@ fn settings_preserve_custom_and_save_explicitly() {
     let mut m = menu();
     enter(&mut m, 4);
     press(&mut m, Input::Activate);
-    enter(&mut m, 5);
+    enter_label(&mut m, "Discard");
     enter(&mut m, 4);
     assert!(m.view().rows[0].label.contains("Both"));
 }
@@ -457,13 +465,13 @@ fn unrelated_release_does_not_repeat_held_activation() {
 fn actual_saved_snapshot_and_conflict_replace_stale_versions() {
     let mut m = menu();
     enter(&mut m, 4);
-    let op = operation(enter(&mut m, 4));
+    let op = operation(enter_label(&mut m, "Save"));
     let mut saved = settings();
     saved.version = "v2".into();
     saved.labels = LabelStyle::Xbox;
     assert!(m.settings_saved(op.id, saved.clone()));
     assert_eq!(m.settings(), &saved);
-    let op = operation(enter(&mut m, 4));
+    let op = operation(enter_label(&mut m, "Save"));
     let mut latest = saved.clone();
     latest.version = "v3".into();
     latest.max_seconds = 99;
@@ -841,7 +849,7 @@ fn settings_commit_requires_matching_save_operation_and_updates_revision() {
     assert!(!m.settings_conflict(op.id, settings()));
     let mut m = menu();
     enter(&mut m, 4);
-    let op = operation(enter(&mut m, 4));
+    let op = operation(enter_label(&mut m, "Save"));
     let wrong = RequestId {
         session: op.id.session + 1,
         serial: op.id.serial,
@@ -854,7 +862,7 @@ fn settings_commit_requires_matching_save_operation_and_updates_revision() {
     assert!(m.settings_saved(op.id, saved));
     assert_eq!(m.revision(), rev + 1);
     assert_eq!(m.view().menu_button, "Options/Menu");
-    let op = operation(enter(&mut m, 4));
+    let op = operation(enter_label(&mut m, "Save"));
     let rev = m.revision();
     assert!(m.settings_conflict(op.id, settings()));
     assert_eq!(m.revision(), rev + 1);
@@ -925,7 +933,7 @@ fn text_right_boundary_and_viewport_revision_are_exact() {
 fn settings_success_requires_committed_version_not_generic_success() {
     let mut m = menu();
     enter(&mut m, 4);
-    let op = operation(enter(&mut m, 4));
+    let op = operation(enter_label(&mut m, "Save"));
     assert!(!m.receive(Response::Mutation {
         id: op.id,
         outcome: Outcome::Success("saved".into())
@@ -961,7 +969,7 @@ fn successful_structural_action_consumes_confirmation_and_session() {
 fn successful_settings_save_defers_display_bindings_until_session_exit() {
     let mut m = menu();
     enter(&mut m, 4);
-    let op = operation(enter(&mut m, 4));
+    let op = operation(enter_label(&mut m, "Save"));
     let mut saved = settings();
     saved.version = "v2".into();
     saved.labels = LabelStyle::Xbox;
@@ -992,7 +1000,7 @@ fn reopened_menu_displays_global_unknown_target_and_waits_for_reconciliation() {
     reopened.sync_operation_slot(&slot);
     assert_eq!(reopened.revision(), rev);
     enter(&mut reopened, 4);
-    assert!(enter(&mut reopened, 4).is_empty());
+    assert!(enter_label(&mut reopened, "Save").is_empty());
     assert!(slot.reconcile(op.id, Outcome::Failed("not dispatched".into())));
     reopened.sync_operation_slot(&slot);
     let op = operation(press(&mut reopened, Input::Activate));
@@ -1051,7 +1059,7 @@ fn pending_settings_never_render_configuration_version_contents() {
     let r = m.revision();
     m.input(Input::Activate, r);
     m.input(Input::Release(ActionKey::Activate), 0);
-    for _ in 0..4 {
+    for _ in 0..5 {
         let r = m.revision();
         m.input(Input::Down, r);
     }
@@ -1285,4 +1293,53 @@ fn controls_names_all_voice_bindings_in_the_selected_style() {
             );
         }
     }
+}
+
+#[test]
+fn preview_setting_toggles_in_draft_and_saves_explicitly() {
+    let mut m = menu();
+    enter(&mut m, 4);
+    let index = m.view().rows.iter().position(|r| r.label == "Preview dictation before sending: Off").expect("preview preference row");
+    let save = m.view().rows.iter().position(|r| r.label == "Save").unwrap();
+    let discard = m.view().rows.iter().position(|r| r.label == "Discard").unwrap();
+    assert!(index < save && save < discard, "preferences must appear before commit/discard actions");
+    enter(&mut m, index);
+    assert_eq!(m.view().rows[index].label, "Preview dictation before sending: On");
+    enter(&mut m, index);
+    assert_eq!(m.view().rows[index].label, "Preview dictation before sending: Off");
+    enter(&mut m, index);
+    assert!(!m.settings().preview_before_send);
+    let op = operation(enter_label(&mut m, "Save"));
+    match op.command {
+        Command::SaveSettings { original, updated } => {
+            assert!(!original.preview_before_send);
+            assert!(updated.preview_before_send);
+        }
+        other => panic!("{other:?}"),
+    }
+    let mut m = menu();
+    enter(&mut m, 4);
+    enter(&mut m, index);
+    enter_label(&mut m, "Discard");
+    enter(&mut m, 4);
+    assert_eq!(m.view().rows[index].label, "Preview dictation before sending: Off");
+}
+
+#[test]
+fn retained_voice_draft_can_be_reopened_from_actions() {
+    let mut m=menu(); m.set_voice_draft_available(true);
+    let index=m.view().rows.iter().position(|r|r.label=="Review voice draft").expect("draft review row");
+    assert_eq!(enter(&mut m,index),vec![Effect::ReviewVoiceDraft]);
+    let mut m=menu();
+    let index=m.view().rows.iter().position(|r|r.label=="Review voice draft").unwrap();
+    assert!(m.view().rows[index].disabled.is_some());
+    assert!(enter(&mut m,index).is_empty());
+}
+
+#[test]
+fn draft_availability_changes_revision_only_when_the_row_changes() {
+    let mut m=menu(); let before=m.revision();
+    m.set_voice_draft_available(true); assert!(m.revision()>before);
+    let ready=m.revision(); m.set_voice_draft_available(true); assert_eq!(m.revision(),ready);
+    m.set_voice_draft_available(false); assert!(m.revision()>ready);
 }

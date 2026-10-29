@@ -60,6 +60,7 @@ fn snapshot(
             labels: cfg.labels,
             voice_button: cfg.voice_button,
             max_seconds: cfg.max_seconds,
+            preview_before_send: cfg.preview_before_send,
             model: cfg.model.to_string_lossy().into(),
             language: cfg.language.clone(),
             config_path: path.to_string_lossy().into(),
@@ -175,6 +176,14 @@ fn edit(
             "voice",
             "max_seconds",
             toml_edit::Value::from(updated.max_seconds as i64),
+        )?;
+    }
+    if original.preview_before_send != updated.preview_before_send {
+        replace(
+            &mut doc,
+            "voice",
+            "preview_before_send",
+            toml_edit::Value::from(updated.preview_before_send),
         )?;
     }
     Ok(doc.to_string())

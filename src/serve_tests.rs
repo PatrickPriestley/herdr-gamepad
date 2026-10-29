@@ -195,3 +195,25 @@ fn mapping_explains_single_press_waiting_agent_confirmation() {
     assert!(MAPPING.contains("One Cross (Xbox: A) press answers a waiting agent, including from Navigate."));
     assert!(!MAPPING.contains("acknowledgement"));
 }
+
+#[test]
+fn preview_transcript_survives_snapshot_failure() {
+    let mut c=Core::new(Btn::RStick); c.set_preview_enabled(true);
+    c.handle(Input::Press(Btn::RStick), &crate::engine_tests::snap());
+    c.handle(Input::Release(Btn::RStick), &crate::engine_tests::snap());
+    let input=on_snapshot_failure(&mut c,Input::Transcript("keep this".into()),"offline").unwrap();
+    assert_eq!(input,Input::Transcript("keep this".into()));
+    c.handle(input,&Snapshot::default());
+    assert_eq!(c.draft().unwrap().text,"keep this");
+}
+
+#[test]
+fn preview_log_records_readiness_without_transcript_content() {
+    let mut core=Core::new(Btn::RStick);
+    let input=Input::Transcript("private draft text".into());
+    assert!(describe_for_log(&input,&core).contains("private draft text"));
+    core.set_preview_enabled(true);
+    core.handle(Input::Press(Btn::RStick),&crate::engine_tests::snap());
+    assert_eq!(describe_for_log(&input,&core),"Transcript ready for preview");
+    assert_eq!(describe_for_log(&Input::Release(Btn::RStick),&core),"Release(right stick click)");
+}

@@ -111,6 +111,9 @@ pub fn render(view: &View, width: usize, height: usize) -> String {
     if width == 0 || height == 0 {
         return String::new();
     }
+    if let Some(preview) = &view.voice_preview {
+        return render_voice(preview, view.labels, view.scroll, width, height);
+    }
     let legends = legend(view.labels, view.editor.is_some(), &view.menu_button);
     let footer = legends.len().min(height.saturating_sub(1));
     let mut lines = vec![];
@@ -226,4 +229,57 @@ pub fn render(view: &View, width: usize, height: usize) -> String {
         .iter()
         .all(|line| UnicodeWidthStr::width(line.as_str()) <= width));
     lines.join("\n")
+}
+
+fn render_voice(
+    preview: &crate::voice_preview::PreviewView,
+    labels: LabelStyle,
+    scroll: usize,
+    width: usize,
+    height: usize,
+) -> String {
+    let footer = [
+        format!(
+            "{} Send · {} Delete",
+            labels.button(Btn::A),
+            labels.button(Btn::X)
+        ),
+        format!(
+            "Hold {}: record again · D-pad: scroll",
+            preview.voice_button
+        ),
+        format!("{} Back — keep draft", labels.button(Btn::B)),
+    ]
+    .iter()
+    .flat_map(|line| wrap(line, width))
+    .collect::<Vec<_>>();
+    let footer_start = footer.len().saturating_sub(height.saturating_sub(1));
+    let footer = &footer[footer_start..];
+    let available = height.saturating_sub(footer.len());
+    let mut lines = vec![clip("Voice message", width)];
+    if available >= 2 {
+        lines.push(clip(&preview.status, width));
+    }
+    let body = voice_body_lines(preview, width);
+    let start = scroll.min(body.len().saturating_sub(1));
+    lines.extend(
+        body.into_iter()
+            .skip(start)
+            .take(available.saturating_sub(lines.len())),
+    );
+    while lines.len() < available {
+        lines.push(String::new());
+    }
+    lines.extend(footer.iter().cloned());
+    lines
+        .into_iter()
+        .take(height)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+pub fn voice_body_lines(preview: &crate::voice_preview::PreviewView, width: usize) -> Vec<String> {
+    let mut lines = wrap(&format!("To: {}", preview.destination), width);
+    lines.extend(preview.text.split('\n').flat_map(|line| wrap(line, width)));
+    lines
 }

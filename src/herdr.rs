@@ -111,6 +111,9 @@ fn drain_available(pipe: &mut impl Read, buf: &mut Vec<u8>) -> io::Result<bool> 
 pub struct Herdr<R: Runner> { pub runner: R }
 
 impl<R: Runner> Herdr<R> {
+    pub fn focused_snapshot(&self) -> Result<Snapshot, String> {
+        Ok(Snapshot { focused: parse_pane(&self.json(&["herdr", "pane", "list"])?), ..Snapshot::default() })
+    }
     pub fn snapshot(&self) -> Result<Snapshot, String> {
         let focused = parse_pane(&self.json(&["herdr", "pane", "list"])?);
         let workspaces = parse_workspaces(&self.json(&["herdr", "workspace", "list"])?);

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add optional dictation preview with send, delete, record-again, and retained-draft controls.
+
 - Resolve worktrees from the focused pane when its space was opened outside a Git repository.
 
 - Add the controller actions menu for spaces, worktrees, pane actions, settings, logs and controls.

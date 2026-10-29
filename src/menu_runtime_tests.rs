@@ -45,6 +45,7 @@ fn harness() -> Harness {
         publisher: None,
         opening: false,
         notice: None,
+        review_voice_requested: false,
         session: 0,
         sequence: 0,
         slot: OperationSlot::default(),
@@ -778,15 +779,9 @@ fn two_saves_use_committed_version_and_apply_together_only_on_exit() {
     let mut h = harness();
     open(&mut h);
     let _lease = ack(&mut h);
-    for _ in 0..4 {
-        tap(&mut h, Btn::Down);
-    }
+    tap_label(&mut h, "Settings");
     tap(&mut h, Btn::A);
-    tap(&mut h, Btn::A);
-    for _ in 0..4 {
-        tap(&mut h, Btn::Down);
-    }
-    tap(&mut h, Btn::A);
+    tap_label(&mut h, "Save");
     let operation = h
         .mutations
         .recv_timeout(Duration::from_millis(200))
@@ -815,14 +810,8 @@ fn two_saves_use_committed_version_and_apply_together_only_on_exit() {
         "committed-v2"
     );
     assert_eq!(h.cfg.labels, LabelStyle::Both);
-    for _ in 0..3 {
-        tap(&mut h, Btn::Up);
-    }
-    tap(&mut h, Btn::A);
-    for _ in 0..3 {
-        tap(&mut h, Btn::Down);
-    }
-    tap(&mut h, Btn::A);
+    tap_label(&mut h, "Voice button:");
+    tap_label(&mut h, "Save");
     let second = h
         .mutations
         .recv_timeout(Duration::from_millis(200))
@@ -887,14 +876,8 @@ fn a_conflict_reloads_form_but_never_becomes_active_configuration() {
     let mut h = harness();
     open(&mut h);
     let _lease = ack(&mut h);
-    for _ in 0..4 {
-        tap(&mut h, Btn::Down);
-    }
-    tap(&mut h, Btn::A);
-    for _ in 0..4 {
-        tap(&mut h, Btn::Down);
-    }
-    tap(&mut h, Btn::A);
+    tap_label(&mut h, "Settings");
+    tap_label(&mut h, "Save");
     let operation = h
         .mutations
         .recv_timeout(Duration::from_millis(200))
@@ -1103,4 +1086,72 @@ fn late_settings_save_waits_for_recording_and_transcription_before_rebinding() {
             vec![engine::Action::StartRecording]
         );
     }
+}
+
+#[test]
+fn preview_preference_activates_on_exit_and_disabling_keeps_pending_draft_unsent() {
+    let mut h = harness();
+    open(&mut h);
+    let mut updated = h.runtime.active.clone();
+    updated.preview_before_send = true;
+    let saved = crate::settings::save(&h.runtime.config, &h.runtime.state, &h.runtime.active, &updated).unwrap();
+    h.runtime.committed = Some(saved);
+    tick(&mut h);
+    assert!(!h.cfg.preview_before_send, "saved settings wait for menu exit");
+    h.runtime.close(&mut h.core, &mut h.cfg);
+    assert!(h.cfg.preview_before_send);
+    let snap = crate::engine_tests::snap();
+    h.core.handle(engine::Input::Press(Btn::RStick), &snap);
+    h.core.handle(engine::Input::Release(Btn::RStick), &snap);
+    let actions = h.core.handle(engine::Input::Transcript("keep this draft".into()), &snap);
+    assert!(actions.is_empty());
+    assert_eq!(h.core.draft().unwrap().text, "keep this draft");
+    let mut updated = h.runtime.active.clone();
+    updated.preview_before_send = false;
+    let saved = crate::settings::save(&h.runtime.config, &h.runtime.state, &h.runtime.active, &updated).unwrap();
+    h.runtime.committed = Some(saved);
+    tick(&mut h);
+    assert!(!h.cfg.preview_before_send);
+    assert_eq!(h.core.draft().unwrap().text, "keep this draft");
+    assert_eq!(h.core.draft().unwrap().state, crate::dictation::DeliveryState::Ready);
+    assert!(h.mutations.try_recv().is_err());
+    assert!(h.core.discard_draft());
+    h.core.handle(engine::Input::Press(Btn::RStick), &snap);
+    h.core.handle(engine::Input::Release(Btn::RStick), &snap);
+    let actions = h.core.handle(engine::Input::Transcript("automatic again".into()), &snap);
+    assert!(matches!(actions.first(), Some(engine::Action::Prompt { text, .. }) if text == "automatic again"));
+}
+
+fn tap_label(h: &mut Harness, label: &str) {
+    let index = h.runtime.model.as_ref().unwrap().view().rows.iter().position(|r| r.label.starts_with(label)).expect("runtime menu row");
+    for _ in 0..30 { tap(h, Btn::Up); }
+    for _ in 0..index { tap(h, Btn::Down); }
+    tap(h, Btn::A);
+}
+
+#[test]
+fn preview_consumed_releases_clear_actions_latches_without_opening_actions() {
+    let mut h = harness();
+    h.runtime.swallowed.push(Btn::A);
+    h.runtime.held.push(Btn::A);
+    crate::serve::forward_overlay_release(&engine::Input::Release(Btn::A), &mut h.runtime, &mut h.core, &mut h.cfg);
+    assert!(h.runtime.swallowed.is_empty());
+    assert!(h.runtime.held.is_empty());
+    crate::serve::forward_overlay_release(&engine::Input::Press(Btn::Menu), &mut h.runtime, &mut h.core, &mut h.cfg);
+    assert!(!h.runtime.is_open());
+    assert!(h.reads.try_recv().is_err());
+}
+
+#[test]
+fn reviewing_a_draft_exits_actions_and_requests_preview_once() {
+    let mut h=harness(); h.core.set_preview_enabled(true);
+    let snapshot=crate::engine_tests::snap();
+    h.core.handle(engine::Input::Press(Btn::RStick),&snapshot);
+    h.core.handle(engine::Input::Release(Btn::RStick),&snapshot);
+    h.core.handle(engine::Input::Transcript("review later".into()),&snapshot);
+    open(&mut h); let _lease=ack(&mut h);
+    tap_label(&mut h,"Review voice draft");
+    assert!(!h.runtime.is_open()); assert!(h.runtime.take_voice_review_request());
+    assert!(!h.runtime.take_voice_review_request());
+    assert_eq!(h.core.draft().unwrap().text,"review later");
 }
