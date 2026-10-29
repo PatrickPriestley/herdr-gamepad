@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.0 — 2026-10-29
+
 - Clear unsent dictation with Square in native preview or Respond (Codex/Claude standard input-line shortcuts).
 
 - Add optional dictation preview directly in the agent input field, with Cross to submit.

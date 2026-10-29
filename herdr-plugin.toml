@@ -5,7 +5,7 @@
 
 id = "herd.gamepad"
 name = "Gamepad"
-version = "0.2.0"
+version = "0.3.0"
 description = "Drive Herdr with a game controller: focus panes, tabs and spaces, answer agents, hold a button to talk."
 min_herdr_version = "0.9.1"
 platforms = ["macos"]

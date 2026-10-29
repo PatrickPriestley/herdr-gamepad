@@ -19,7 +19,7 @@ Requirements:
 - `whisper-cli` from Homebrew's `whisper-cpp` package.
 - A controller paired with macOS and microphone permission for the terminal app.
 
-Herdr runs the build script during installation. New releases will include binaries for
+Herdr runs the build script during installation. Releases from v0.3.0 include binaries for
 Apple Silicon and Intel Macs. The installer verifies the archive's SHA-256 and its embedded
 source commit against a clean Git checkout before using a binary. A different commit,
 local changes, missing Git metadata, or unavailable/unverifiable assets trigger a source
@@ -30,7 +30,7 @@ Line Tools.
 
 ```sh
 brew install whisper-cpp
-herdr plugin install PatrickPriestley/herdr-gamepad --ref v0.2.0
+herdr plugin install PatrickPriestley/herdr-gamepad --ref v0.3.0
 ```
 
 1. Pair the controller in System Settings > Bluetooth (DualSense: hold Create + PS).
@@ -201,7 +201,7 @@ updates `CHANGELOG.md`, then tag `main`:
 
 ```sh
 git switch main && git pull --ff-only
-git tag -a v0.2.1 -m "Release v0.2.1" && git push origin v0.2.1
+git tag -a v0.3.1 -m "Release v0.3.1" && git push origin v0.3.1
 ```
 
 CI checks the tag matches the versions and publishes the release once both macOS jobs
