@@ -37,3 +37,9 @@ The suggestion to strip printable escape-sequence residue was not adopted: the s
 The follow-up review identified transient snapshot failure sharing the menu disarm path. A separate mode/latch reset now preserves staged submission on temporary reads; the regression was observed assertion-red before the correction. Navigation-button cancellation is intentional even when there is only one tab/space: it returns control to the usual navigation bindings and avoids retaining an unexpected Enter capability. README describes cancellation by button press. Deferred-result toast concerns are not reachable in the synchronous dispatch path.
 
 Final focused GLM review completed with `<<AGENT-REVIEW-END>>` and no important issues. Its comment-placement nit was corrected. All verified important findings are resolved; the two documented minor behavior choices remain intentional.
+
+## Literal prefix correction
+
+User testing revealed `-- ` prepended to every native transcript. The earlier nonexistent-pane probe proved only argument acceptance, not correct text parsing. A fake Unix socket with the installed CLI's ping handshake captured `pane.send_text.params.text` as `-- Testing voice.`. Herdr joins all trailing arguments as literal text; it does not interpret an option separator here. Remove the injected `--` argument, preserve user-spoken/literal leading hyphens, and regression-test the argv boundary.
+
+The corrected fake-socket probe preserved ordinary text, `-- literal hyphens`, and `-leading` exactly. Both regression assertions failed before the fix; 318 unit tests and four integration tests pass afterward. Source build and independent GLM review completed successfully. No guards changed.

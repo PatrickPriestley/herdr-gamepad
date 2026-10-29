@@ -235,7 +235,7 @@ pub fn argv_for(a: &Action) -> Vec<String> {
             v.extend(keys.iter().map(|k| key_name(*k).to_string()));
             v
         }
-        Action::InsertText { target, text } => s(&["herdr", "pane", "send-text", &target.pane_id, "--", text]),
+        Action::InsertText { target, text } => s(&["herdr", "pane", "send-text", &target.pane_id, text]),
         Action::SubmitText { target } => s(&["herdr", "agent", "send-keys", &target.pane_id, "enter"]),
         Action::Prompt { target, text } => s(&["herdr", "agent", "prompt", target, text]),
         Action::Toast { title, body, sound } => {

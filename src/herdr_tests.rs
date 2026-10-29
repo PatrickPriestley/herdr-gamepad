@@ -321,7 +321,7 @@ fn native_preview_inserts_without_enter_and_rechecks_the_target() {
     let f=Fake::new(vec![("herdr pane list",Ok(PANE_CURRENT)),("herdr pane send-text",Ok("{}"))]);
     let action=Action::InsertText {target:target.clone(),text:"hello world".into()};
     Herdr{runner:&f}.apply(&action).unwrap();
-    assert_eq!(f.calls(),["herdr pane list","herdr pane send-text w1M:p1 -- hello world"]);
+    assert_eq!(f.calls(),["herdr pane list","herdr pane send-text w1M:p1 hello world"]);
     let f=Fake::new(vec![("herdr pane list",Ok(PANE_CURRENT_SHELL))]);
     assert!(Herdr{runner:&f}.apply(&action).is_err());
     assert_eq!(f.calls(),["herdr pane list"]);
@@ -350,4 +350,13 @@ fn native_submit_distinguishes_refusal_from_uncertain_delivery() {
     let f=Fake::new(vec![("herdr pane list",Ok(PANE_CURRENT)),("herdr agent send-keys",Err("lost"))]);
     assert_eq!(Herdr{runner:&f}.submit_native(&target),Err(NativeSubmitError::Unconfirmed("lost".into())));
     assert_eq!(f.calls().len(),2);
+}
+
+#[test]
+fn native_preview_cli_passes_only_the_transcript_as_text() {
+    let target=crate::engine_tests::snap().focused.unwrap();
+    for text in ["Testing voice.","-- literal hyphens","-leading"] {
+        assert_eq!(argv_for(&Action::InsertText{target:target.clone(),text:text.into()}),
+            vec!["herdr","pane","send-text",&target.pane_id,text]);
+    }
 }
