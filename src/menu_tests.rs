@@ -16,6 +16,7 @@ fn settings() -> SettingsSnapshot {
         voice_button: Btn::RStick,
         max_seconds: 47,
         preview_before_send: false,
+        agent_pages: false,
         model: "/models/base.bin".into(),
         language: "en".into(),
         config_path: "/config.toml".into(),
@@ -1059,7 +1060,8 @@ fn pending_settings_never_render_configuration_version_contents() {
     let r = m.revision();
     m.input(Input::Activate, r);
     m.input(Input::Release(ActionKey::Activate), 0);
-    for _ in 0..5 {
+    let save_index = m.view().rows.iter().position(|r| r.label == "Save").unwrap();
+    for _ in 0..save_index {
         let r = m.revision();
         m.input(Input::Down, r);
     }
@@ -1328,4 +1330,34 @@ fn preview_setting_toggles_in_draft_and_saves_explicitly() {
 #[test]
 fn native_preview_has_no_separate_review_menu_action() {
     assert!(menu().view().rows.iter().all(|row| row.label != "Review voice draft"));
+}
+
+#[test]
+fn agent_pages_toggles_in_draft_and_saves_explicitly() {
+    let mut m = menu();
+    enter(&mut m, 4);
+    let index = m.view().rows.iter().position(|r| r.label == "Agent scrolling (experimental): Off").expect("agent scrolling preference row");
+    let save = m.view().rows.iter().position(|r| r.label == "Save").unwrap();
+    let discard = m.view().rows.iter().position(|r| r.label == "Discard").unwrap();
+    assert!(index < save && save < discard, "preferences must appear before commit/discard actions");
+    enter(&mut m, index);
+    assert_eq!(m.view().rows[index].label, "Agent scrolling (experimental): On");
+    enter(&mut m, index);
+    assert_eq!(m.view().rows[index].label, "Agent scrolling (experimental): Off");
+    enter(&mut m, index);
+    assert!(!m.settings().agent_pages);
+    let op = operation(enter_label(&mut m, "Save"));
+    match op.command {
+        Command::SaveSettings { original, updated } => {
+            assert!(!original.agent_pages);
+            assert!(updated.agent_pages);
+        }
+        other => panic!("{other:?}"),
+    }
+    let mut m = menu();
+    enter(&mut m, 4);
+    enter(&mut m, index);
+    enter_label(&mut m, "Discard");
+    enter(&mut m, 4);
+    assert_eq!(m.view().rows[index].label, "Agent scrolling (experimental): Off");
 }

@@ -21,7 +21,7 @@ impl Btn {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Input { Press(Btn), Release(Btn), Connected, Disconnected, Transcript(String), TranscriptFailed(String) }
+pub enum Input { ScrollAxis(i8), Press(Btn), Release(Btn), Connected, Disconnected, Transcript(String), TranscriptFailed(String) }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode { Navigate, Respond, Interact }
@@ -153,6 +153,7 @@ impl Core {
 
     pub fn handle(&mut self, input: Input, snap: &Snapshot) -> Vec<Action> {
         match input {
+            Input::ScrollAxis(_) => vec![],
             Input::Press(b) if b == self.voice_button => {
                 if self.recording { return vec![]; }
                 if self.transcribing { return vec![toast("Still transcribing", "wait for the previous one", Sound::None)]; }

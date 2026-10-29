@@ -103,9 +103,50 @@ Routine status goes to the log ("Gamepad: show logs"); only errors appear as not
 | Triggers | LT / RT | L2 / R2 | Prev / next tab | Same, to Navigate | Same, to Navigate | |
 | Back | View | Create | | Escape | Escape | Close |
 | Menu | Menu | Options | Actions menu | Actions menu | Actions menu | Close |
-| Right stick | | R3 | Hold to dictate | Hold to dictate | Hold to dictate | |
+| Right stick click | | R3 | Hold to dictate | Hold to dictate | Hold to dictate | |
+| Right stick up/down | | | Scroll pane history | Scroll pane history | Scroll pane history | |
 
 If the voice button is set to Options, L3 opens the actions menu.
+
+**Joystick scrolling uses released Herdr APIs, probed on Herdr 0.9.1.
+No custom Herdr patch is required.**
+
+Tilt the right stick up/down to scroll the selected pane, including when expanded.
+By default this scrolls terminal history; stronger tilt moves more rows.
+
+**Known blocker on Herdr 0.9.1:** its agent API rejects Page Up/Page Down key names.
+Leave **Agent scrolling (experimental)** off on that version; the current agent route
+does not scroll conversations. Terminal-history scrolling remains available.
+
+The experimental controls, pending compatible API support, are **Gamepad actions → Settings**:
+turn **Agent scrolling (experimental)** on, save, and close the menu. The stick then
+sends one Page Up/Down press at a time through Herdr's agent API: gentle tilt repeats
+about every 600 ms, full tilt about every 300 ms. Other panes keep terminal-history
+scrolling. Turn it off the same way to restore terminal-history scrolling everywhere.
+The optional file setting defaults to false:
+
+```toml
+[scroll]
+agent_pages = true
+```
+
+Agent scrolling requires the application's page keys to scroll its conversation.
+Classic renderers and custom keybindings may behave differently; leave it off there.
+Detected dialogs, uncertain agent state, and changes of pane or agent stop the gesture.
+An agent reporting its session ID during a gesture can also stop it; center the stick and retry.
+Detection is best-effort: an undetected dialog or a change between checking and sending
+can still receive a page key. No arrows, Enter, mouse bytes, or automatic viewer toggles
+are sent. If the host view was scrolled up, agent scrolling first returns it to the
+live application. These app-specific controls remain experimental pending hardware
+validation in Codex 0.165.0 and Claude Code 2.1.287.
+
+Right-stick click still records dictation. Buttons, menus, dictation, disconnects,
+setting changes and errors stop scrolling; return the stick to center before retrying.
+Targeting uses Herdr's server-wide selected pane: do not use this with multiple clients
+independently navigating the same server. A held gesture never switches to another pane.
+An update already in progress may finish on the previous pane after
+a focus change; the API does not make the focus check and update atomic.
+Pending repeats are discarded. The left stick and horizontal movement are unchanged.
 
 ## Controller actions menu
 

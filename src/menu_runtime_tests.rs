@@ -1148,3 +1148,25 @@ fn disabling_preview_explains_that_native_editor_text_remains_unsent() {
         assert!(h.runtime.take_notice().is_none(), "notice is consumed once");
     }
 }
+
+#[test]
+fn agent_pages_preference_activates_only_after_saved_menu_exit() {
+    for (before, enabled) in [(false, true), (true, false)] {
+        let mut h = harness();
+        let mut initial = h.runtime.active.clone();
+        initial.agent_pages = before;
+        h.runtime.committed = Some(crate::settings::save(&h.runtime.config, &h.runtime.state, &h.runtime.active, &initial).unwrap());
+        tick(&mut h);
+        open(&mut h);
+        let mut updated = h.runtime.active.clone();
+        updated.agent_pages = enabled;
+        let saved = crate::settings::save(&h.runtime.config, &h.runtime.state, &h.runtime.active, &updated).unwrap();
+        h.runtime.committed = Some(saved);
+        tick(&mut h);
+        assert_eq!(h.cfg.agent_pages, before, "save waits for menu exit");
+        h.runtime.close(&mut h.core, &mut h.cfg);
+        assert_eq!(h.cfg.agent_pages, enabled);
+        assert_eq!(h.runtime.active.agent_pages, enabled);
+        assert!(h.mutations.try_recv().is_err());
+    }
+}

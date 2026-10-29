@@ -62,3 +62,16 @@ fn disconnecting_resets_the_triggers() {
     assert_eq!(p.input(Raw::Changed(Button::LeftTrigger2, 1.0)), Some(Input::Press(Btn::Lt)), "a reconnected pad starts with its triggers up");
     assert_eq!(p.input(Raw::Changed(Button::RightTrigger2, 1.0)), Some(Input::Press(Btn::Rt)));
 }
+
+#[test]
+fn right_stick_vertical_motion_is_normalized_scroll_input() {
+    let mut pad = Pad::new();
+    assert_eq!(pad.input(Raw::Axis(gilrs::Axis::RightStickY, 0.75)), Some(Input::ScrollAxis(75)));
+    assert_eq!(pad.input(Raw::Axis(gilrs::Axis::RightStickY, -1.0)), Some(Input::ScrollAxis(-100)));
+    assert_eq!(pad.input(Raw::Axis(gilrs::Axis::RightStickY, 0.0)), Some(Input::ScrollAxis(0)));
+    assert_eq!(pad.input(Raw::Axis(gilrs::Axis::RightStickX, 1.0)), None);
+    assert_eq!(pad.input(Raw::Axis(gilrs::Axis::LeftStickY, 1.0)), None);
+    assert_eq!(pad.input(Raw::Axis(gilrs::Axis::RightStickY, f32::NAN)), Some(Input::ScrollAxis(0)));
+    assert_eq!(pad.input(Raw::Axis(gilrs::Axis::RightStickY, f32::INFINITY)), Some(Input::ScrollAxis(0)));
+    assert_eq!(pad.input(Raw::Axis(gilrs::Axis::RightStickY, 5.0)), Some(Input::ScrollAxis(100)));
+}

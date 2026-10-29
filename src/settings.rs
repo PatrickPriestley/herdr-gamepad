@@ -61,6 +61,7 @@ fn snapshot(
             voice_button: cfg.voice_button,
             max_seconds: cfg.max_seconds,
             preview_before_send: cfg.preview_before_send,
+            agent_pages: cfg.agent_pages,
             model: cfg.model.to_string_lossy().into(),
             language: cfg.language.clone(),
             config_path: path.to_string_lossy().into(),
@@ -184,6 +185,14 @@ fn edit(
             "voice",
             "preview_before_send",
             toml_edit::Value::from(updated.preview_before_send),
+        )?;
+    }
+    if original.agent_pages != updated.agent_pages {
+        replace(
+            &mut doc,
+            "scroll",
+            "agent_pages",
+            toml_edit::Value::from(updated.agent_pages),
         )?;
     }
     Ok(doc.to_string())

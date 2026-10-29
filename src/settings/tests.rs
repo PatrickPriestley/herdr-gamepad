@@ -232,3 +232,36 @@ fn preview_setting_roundtrips_and_preserves_comments_and_absent_defaults() {
     assert!(!fs::read_to_string(&p).unwrap().contains("preview_before_send"));
     fs::remove_dir_all(p.parent().unwrap()).unwrap();
 }
+
+#[test]
+fn agent_pages_roundtrips_without_rewriting_other_settings() {
+    let p = fixture();
+    let text = "# settings\n[voice]\npreview_before_send = true # voice\n[scroll]\nagent_pages = false # experimental\nother = 42\n";
+    fs::write(&p, text).unwrap();
+    let (old, _) = load(&p, p.parent().unwrap()).unwrap();
+    let mut enabled = old.clone();
+    enabled.agent_pages = true;
+    let (saved, cfg) = save(&p, p.parent().unwrap(), &old, &enabled).unwrap();
+    assert!(cfg.agent_pages);
+    assert!(saved.agent_pages);
+    assert!(cfg.preview_before_send);
+    let actual = fs::read_to_string(&p).unwrap();
+    assert!(actual.contains("# experimental"));
+    assert!(actual.contains("# voice"));
+    assert!(actual.contains("other = 42"));
+    let mut disabled = saved.clone();
+    disabled.agent_pages = false;
+    let (saved, cfg) = save(&p, p.parent().unwrap(), &saved, &disabled).unwrap();
+    assert!(!cfg.agent_pages);
+    assert!(!saved.agent_pages);
+    let (reloaded, cfg) = load(&p, p.parent().unwrap()).unwrap();
+    assert!(!cfg.agent_pages);
+    assert!(!reloaded.agent_pages);
+    fs::write(&p, "# no scroll settings\n[other]\nkeep = 1\n").unwrap();
+    let (old, _) = load(&p, p.parent().unwrap()).unwrap();
+    let mut labels = old.clone();
+    labels.labels = LabelStyle::Xbox;
+    save(&p, p.parent().unwrap(), &old, &labels).unwrap();
+    assert!(!fs::read_to_string(&p).unwrap().contains("agent_pages"));
+    fs::remove_dir_all(p.parent().unwrap()).unwrap();
+}

@@ -2,13 +2,14 @@
 //! built in tests; `raw()` is the only untested line and it only forgets the code.
 
 use crate::engine::{Btn, Input};
-use gilrs::{Button, EventType};
+use gilrs::{Axis, Button, EventType};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Raw { Pressed(Button), Released(Button), Changed(Button, f32), Connected, Disconnected }
+pub enum Raw { Axis(Axis, f32), Pressed(Button), Released(Button), Changed(Button, f32), Connected, Disconnected }
 
 pub fn raw(ev: &EventType) -> Option<Raw> {
     Some(match ev {
+        EventType::AxisChanged(a, value, _) => Raw::Axis(*a, *value),
         EventType::ButtonPressed(b, _) => Raw::Pressed(*b),
         EventType::ButtonReleased(b, _) => Raw::Released(*b),
         EventType::ButtonChanged(b, v, _) => Raw::Changed(*b, *v),
@@ -27,6 +28,10 @@ impl Pad {
 
     pub fn input(&mut self, r: Raw) -> Option<Input> {
         match r {
+            Raw::Axis(Axis::RightStickY, value) => Some(Input::ScrollAxis(
+                if value.is_finite() { (value.clamp(-1.0, 1.0) * 100.0).round() as i8 } else { 0 }
+            )),
+            Raw::Axis(..) => None,
             Raw::Changed(Button::LeftTrigger2, v) => edge(&mut self.lt, v, Btn::Lt),
             Raw::Changed(Button::RightTrigger2, v) => edge(&mut self.rt, v, Btn::Rt),
             Raw::Changed(..) => None,
