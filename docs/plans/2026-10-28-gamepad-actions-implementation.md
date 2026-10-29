@@ -65,7 +65,7 @@ Disabled rows remain visible with a concise reason. Missing repository context d
 
 New space uses the captured pane's nonempty absolute `foreground_cwd`, falling back to `cwd`. If neither is available, explain why creation is unavailable. Use an editable suggested name such as `Space 20261028-0905`; pass the explicit directory and name to workspace creation, then focus the returned workspace ID after success.
 
-Split actions use the captured pane ID and an explicit source directory using the same rule. Focus the returned new pane after success. Toggle zoom acts on the captured pane. Rename provides an editable existing label and an explicit Clear label action.
+Split actions use the captured pane ID and an explicit source directory using the same rule. Use the split command’s `--focus` flag: Herdr cannot focus an arbitrary non-agent pane by ID afterward. The focus side effect belongs to the submitted mutation and cannot be cancelled after dispatch. Toggle zoom acts on the captured pane. Rename provides an editable existing label and an explicit Clear label action.
 
 Closing a pane or space shows a confirmation screen with its label, ID, and the fact that running processes stop. Cancel is initially selected. One Cross/A press on the Confirm row executes once. Closing a space does not delete its Git worktree. If Herdr requires a grouped workspace close, display that refusal; do not escalate to closing the whole group automatically.
 
@@ -103,7 +103,7 @@ Use a header, breadcrumb, highlighted selection, optional detail area, and fixed
 
 Use standard Unicode glyphs plus names, with a text fallback. Add terminal-width-aware clipping and scrolling; never clip the selected action or its confirmation target without an expandable details view. Escape control characters in labels, paths, errors and logs before rendering. Hide the terminal cursor while the viewer is active and restore it on exit.
 
-Loading and command execution have explicit states. One mutation may be in flight; repeated input cannot submit it again. Navigation back is allowed during reads, with stale results discarded by session/request ID. During a mutation, show its target and Pending state. A timeout means outcome unknown: refresh state and explain it, never automatically retry creation, splitting, closing or removal.
+Loading and command execution have explicit states. One mutation may be in flight; repeated input cannot submit it again. Navigation back is allowed during reads, with stale read results discarded by session/request ID; mutation outcomes survive dismissal. During a mutation, show its target and Pending state. A timeout means outcome unknown: retain the global mutation slot, refresh state and explain it, never automatically retry creation, splitting, closing or removal. Release the slot only after reconciliation proves the outcome. If identity cannot be established, keep mutations disabled and show the unresolved operation.
 
 ## Implementation structure and files
 
@@ -115,7 +115,8 @@ Loading and command execution have explicit states. One mutation may be in fligh
 | `src/engine.rs`, `src/engine_tests.rs` | Replace close-only state with menu integration; retain existing pane/agent controls |
 | `src/herdr.rs`, `src/herdr_tests.rs` | Parse contextual details and typed read/mutation results; construct explicit-target commands |
 | `src/feedback.rs`, `src/feedback_tests.rs` | Generalize popup session, live-view acknowledgement, teardown and error presentation |
-| `src/serve.rs`, `src/serve_tests.rs` | Asynchronous menu command worker, result dispatch, settings application and input routing |
+| `src/menu_runtime.rs`, `src/menu_runtime_tests.rs` (new), `src/serve.rs`, `src/serve_tests.rs` | Daemon-owned operation coordinator, result dispatch, settings activation and input routing |
+| `src/menu_worker.rs`, `src/menu_worker_tests.rs` (new) | Bounded asynchronous reads, popup launch, explicit-target mutations and reconciliation; cancellation and joining |
 | `src/config.rs`, `src/config_tests.rs` | Label preference, validated updates, atomic persistence and external-edit detection |
 | `src/main.rs`, `herdr-plugin.toml`, `tests/manifest.rs` | Add general menu viewer entrypoint/title/size; retain old close-menu command as a compatibility alias |
 | `Cargo.toml`, `Cargo.lock` | Add direct terminal-width and format-preserving TOML dependencies if existing dependencies do not supply these contracts |
@@ -183,3 +184,23 @@ Isolated server: `gamepad-actions-probe-20261028`, Herdr 0.9.1. Only disposable 
 - `agent focus` on a non-agent pane fails with `agent_not_found`; creation-time focus is required for splits.
 
 The source checkout spelling and returned canonical path can differ (`/tmp` versus `/private/tmp`); compare canonical filesystem identity for repository checks, while preserving server-returned paths for operations.
+
+Additional successful probes: closing a linked workspace preserves its checkout; opening that same path returns `worktree_opened` with a new workspace ID. Clean removal returns `worktree_removed` with `forced: false`. Split-down with `--focus` returns a focused new pane; explicit workspace focus returns workspace info. A controlled response-loss wrapper completed one workspace creation then withheld its response until the caller timed out; reconciliation found exactly one created workspace and no retry was issued (`/tmp/gamepad-menu-outcome-probe.py`).
+
+Independent design review: Claude Sonnet completed a read-only review (`/tmp/gamepad-menu-design-review.txt`). Accepted clarifications above resolve delayed focus, mutation lifetime and settings activation. A successful self-focusing operation may close the menu; its result must still be reconciled. Opening-time snapshot failure refuses opening (it is not a successful empty context). Settings conflict reloads current disk state, discards unsaved edits and displays a retry message. Atomic replacement plus a cooperative writer lock avoids partial writes and competing plugin writers, but cannot guarantee compare-and-swap against an unrelated editor that ignores that lock; a final content comparison narrows that residual race.
+
+Default-location probe also passed: omitting `--path` created the scratch repository’s linked checkout under `~/.herdr/worktrees/gamepad-actions-probe-repo/gamepad-default-location-probe`, with the returned path and workspace association. No implementation should infer that path; always use the response.
+
+Settings library probe: toml_edit 0.22.27 in `/tmp/gamepad-toml-probe` showed direct value assignment drops the inline comment. Copying the old value decor to the replacement preserved it and unrelated table values. Implement and test that preservation explicitly.
+
+Runtime decomposition after foundation review: keep Core for normal modes and voice; intercept menu entry before synchronous pane routing. A daemon-owned coordinator owns Opening/Open states, the persistent operation slot and committed settings. Read/popup jobs remain independent of the single mutation worker; completions carry typed resource IDs and committed config separately from display messages. Every exit shares one path. A late committed settings result must update runtime even if the original Menu was dropped. Preserve renderer lease/flush-before-ack tests and migrate close routing tests to the new menu path.
+
+Foundation quality review clarifications: successful structural operations (create/open/remove/close) consume their screen and dismiss the popup; only a fresh session can submit a new structural action. Compute guarded follow-up focus eligibility before delivery of that success. A refreshed repository response must retain the original opaque repo_key; every worktree operation carries that key for pre-dispatch validation. Unicode rendering measures complete grapheme clusters consistently, and directional control characters display visibly rather than reordering confirmation targets.
+
+## Execution progress: foundation
+
+Pure menu and renderer implemented, with frozen typed effects, optional context, semantic revisions, matching key releases, character-grid entry, versioned settings results, and persistent operation-slot display. Spec review passed after fresh Create-form HEAD and shared scroll geometry fixes. Independent Claude quality review findings were reproduced in failing assertions, then fixed: legend composition, grapheme width, consumed structural confirmations, and bidi controls.
+
+Mutation evidence (new pure modules): final full sweep 359 mutants = 338 caught, 17 unviable, 4 survivors; added assertions for the surviving Pending→Unknown display/revision transition and reran all four against unchanged production source: 4 caught. Combined final result: 342 caught, 17 unviable, zero survivors; no equivalent-mutant exclusions. Evidence: `/tmp/gamepad-menu-mutations-round4/mutants.out` and `/tmp/gamepad-menu-mutations-final-iterate.log`.
+
+Focused tests pass. Full suite at this checkpoint: 212 pass, two pre-existing feedback wording failures from the earlier visual draft remain; integration must migrate them. Runtime/adapters/settings persistence are not yet implemented.
