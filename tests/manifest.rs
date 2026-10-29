@@ -4,7 +4,7 @@ fn entries_call_real_subcommands() {
     let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/herdr-plugin.toml")).unwrap();
     let m: toml::Table = text.parse().unwrap();
     assert_eq!(m["id"].as_str(), Some("herd.gamepad"));
-    let real = ["serve", "ensure", "stop", "setup", "mapping", "open-mapping", "logs", "open-logs", "close-menu"];
+    let real = ["serve", "ensure", "stop", "setup", "mapping", "open-mapping", "logs", "open-logs", "close-menu", "actions-menu"];
     let mut entries = vec![];
     for key in ["panes", "actions"] { entries.extend(m[key].as_array().unwrap().iter().cloned()); }
     assert!(!entries.is_empty());
@@ -22,6 +22,8 @@ fn entries_call_real_subcommands() {
     let close = panes.iter().find(|p| p["id"].as_str() == Some("close-menu"));
     assert!(close.is_some(), "explicit close actions have a popup entrypoint");
     assert_eq!(close.unwrap()["placement"].as_str(), Some("popup"));
+    let menu = panes.iter().find(|p| p["id"].as_str() == Some("actions-menu")).unwrap();
+    assert_eq!(menu["placement"].as_str(), Some("popup"));
     let actions = m["actions"].as_array().unwrap();
     for sub in ["serve", "stop", "setup", "open-mapping", "open-logs"] {
         assert!(actions.iter().any(|a| a["command"][1].as_str() == Some(sub)), "an action runs {sub}");

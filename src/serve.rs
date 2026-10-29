@@ -1,7 +1,7 @@
 //! The daemon: controller events in, herdr commands out, with push-to-talk transcribed off-thread.
 
 use crate::config::Config;
-use crate::feedback::{Feedback, MenuUi};
+use crate::feedback::Feedback;
 use crate::engine::*;
 use crate::herdr::{Cli, CancellableCli, Herdr, Runner};
 use crate::lifecycle::{Daemon, Cancellation};
@@ -16,7 +16,7 @@ pub fn serve() -> Result<(), String> {
     // Acquire ownership before opening the shared rotating log.
     let Some(daemon) = Daemon::acquire(&state)? else { println!("herd-gamepad already running"); return Ok(()); };
     crate::logging::init(&state)?;
-    let (cfg, state) = crate::config::load()?;
+    let (mut cfg, state) = crate::config::load()?;
     if !cfg.model.exists() {
         return Err(format!("whisper model missing at {}; run: herd-gamepad setup", cfg.model.display()));
     }
@@ -27,18 +27,23 @@ pub fn serve() -> Result<(), String> {
     let mut pad = Pad::new();
     let mut core = Core::new(cfg.voice_button);
     let mut feedback = Feedback::default();
-    let mut menu = MenuUi::new(&state);
+    let mut menu = crate::menu_runtime::MenuRuntime::new(cancellation.clone(), state.clone(), crate::config::dirs().1.join("config.toml"))?;
     let mut recorder: Option<Recorder> = None;
     let (tx, rx) = mpsc::channel::<Input>();
     crate::logging::event(format_args!("herd-gamepad: listening; {} controller(s) connected; hold {} to talk", gilrs.gamepads().count(), cfg.voice_button.label()));
     while !cancellation.cancelled() {
-        if let Err(e)=menu.sync(&mut core,&herdr) {feedback.emit(&herdr,&toast("Close menu unavailable",&e,Sound::Request));}
+        menu.tick(&mut core, &mut cfg);
+        if let Some(message)=menu.take_notice(){feedback.emit(&herdr,&toast("Gamepad actions",&message,Sound::Request));}
         let inputs = next_inputs(|| {
             gilrs.next_event()
                 .map(|ev| pad::raw(&ev.event).and_then(|r| pad.input(r)))
         }, &rx);
         for mut input in inputs {
             if cancellation.cancelled() { break; }
+            if menu.handle(&input, &mut core, &mut cfg) {
+                if let Some(message)=menu.take_notice(){feedback.emit(&herdr,&toast("Gamepad actions",&message,Sound::Request));}
+                continue;
+            }
             let snap = match needs_snapshot(&input, cfg.voice_button).then(|| herdr.snapshot()) {
                 None => Snapshot::default(),
                 Some(Ok(s)) => s,
@@ -54,10 +59,7 @@ pub fn serve() -> Result<(), String> {
             };
             if cancellation.cancelled() { break; }
             crate::logging::event(format_args!("herd-gamepad: {} in {:?}", describe(&input), core.mode()));
-            let actions=match menu.handle(&mut core,input,&snap,&herdr) {
-                Ok(actions)=>actions,
-                Err(e)=>{feedback.emit(&herdr,&toast("Close menu unavailable",&e,Sound::Request));continue;}
-            };
+            let actions=core.handle(input,&snap);
             let mut recording_error=None;
             apply_actions(&herdr, actions, &mut feedback, |action| {
                 match action {
@@ -139,7 +141,7 @@ pub fn needs_snapshot(input: &Input, voice_button: Btn) -> bool {
 /// dropped as "nothing was focused"); a transcript that cannot be routed fails instead, so the next recording
 /// can start.
 pub fn on_snapshot_failure(core: &mut Core, input: Input, err: &str) -> Option<Input> {
-    core.cancel_close();
+    core.menu_exit();
     match input {
         Input::Transcript(_) => Some(Input::TranscriptFailed(format!("Herdr unavailable: {err}"))),
         Input::Release(_) | Input::Disconnected | Input::TranscriptFailed(_) => Some(input),
@@ -279,19 +281,21 @@ Shoulders, triggers,
 Focus changes or an agent appearing leave Interact without sending a key.
 PR Tracker: left/right choose categories; Square opens details; up/down move.
 
-CLOSE ACTIONS
-Menu / Options opens close actions; if voice uses Menu, use left stick click.
-Square (Xbox: X)       Select close pane
-Triangle (Xbox: Y)     Select close space
-Cross (Xbox: A)        Confirm selected close
-Circle (Xbox: B)       Cancel; Back or the menu button also cancels
+ACTIONS MENU
+Menu / Options opens actions; if voice uses Menu, use left stick click.
+D-pad                 Select a row; Right opens submenus; Left goes back
+Cross (Xbox: A)        Activate; close actions require a separate confirmation
+Square (Xbox: X)       Expand details; delete in text entry
+Triangle (Xbox: Y)     Change text-entry character page
+Circle (Xbox: B)       Back; View or the menu button closes
+New space, worktrees, pane actions, Close…, Settings, Logs and Controls.
 Closing stops running processes in the pane or space. Focus changes cancel.
-Finish dictation before opening close actions.
+Finish dictation before opening actions.
 
 D-pad always moves pane focus in Navigate; Cross enters Respond on an agent.
 One Cross (Xbox: A) press answers a waiting agent, including from Navigate.
 Routine status updates are in Gamepad logs. Errors are shown at most once per 5 seconds.
-Close actions use a live popup; wait for the selected target to appear before confirming.
+Actions use a live popup; wait for the selected target to appear before confirming.
 Button positions define the actions, even when your controller uses other labels.
 ";
 

@@ -77,18 +77,12 @@ pub fn toast(title: &str, body: &str, sound: Sound) -> Action {
     Action::Toast { title: title.into(), body: body.into(), sound }
 }
 
-#[derive(Clone, Copy)]
-enum CloseKind { Pane, Space }
-
-struct CloseMenu { pane_id: String, workspace_id: String, choice: Option<CloseKind> }
-
 /// The action menu never takes the configured push-to-talk button.
 pub fn menu_button(voice_button: Btn) -> Btn {
     if voice_button == Btn::Menu { Btn::LStick } else { Btn::Menu }
 }
 
 pub struct Core {
-    close_menu: Option<CloseMenu>,
     mode: Mode,
     voice_button: Btn,
     /// The pane Respond was entered on; a press with another pane focused leaves Respond instead of answering.
@@ -104,21 +98,16 @@ pub struct Core {
 
 impl Core {
     pub fn new(voice_button: Btn) -> Self {
-        Core { close_menu: None, mode: Mode::Navigate, voice_button, respond_pane: None, interact_pane: None, recording: false, transcribing: false, voice_target: None }
+        Core { mode: Mode::Navigate, voice_button, respond_pane: None, interact_pane: None, recording: false, transcribing: false, voice_target: None }
     }
     pub fn mode(&self) -> Mode { self.mode }
+    pub fn voice_busy(&self)->bool {self.recording||self.transcribing}
+    pub fn menu_exit(&mut self){self.enter_navigate();}
+    pub fn rebind(&mut self,button:Btn){self.voice_button=button;}
     #[cfg_attr(not(test), allow(dead_code))]
     pub fn recording(&self) -> bool { self.recording }
 
     pub fn handle(&mut self, input: Input, snap: &Snapshot) -> Vec<Action> {
-        if let Input::Press(b) = input {
-            if self.close_menu.is_some() {
-                // Starting voice needs no snapshot; do not mistake its empty context for moved focus.
-                if b == self.voice_button { return vec![]; }
-                return self.close_press(b, snap);
-            }
-            if b == menu_button(self.voice_button) { return self.open_close(snap); }
-        }
         match input {
             Input::Press(b) if b == self.voice_button => {
                 if self.recording { return vec![]; }
@@ -154,64 +143,6 @@ impl Core {
                 vec![toast("Transcription failed", &e, Sound::Request)]
             }
         }
-    }
-
-    /// A failed snapshot disarms close intent; a later successful read must not revive it.
-    pub fn cancel_close(&mut self) { self.close_menu = None; }
-
-    pub fn close_view(&self) -> Option<String> {
-        let menu=self.close_menu.as_ref()?;
-        let heading=match menu.choice {
-            None=>format!("Close actions — pane {} / space {}\nSquare (Xbox: X): Close pane\nTriangle (Xbox: Y): Close space",menu.pane_id,menu.workspace_id),
-            Some(CloseKind::Pane)=>format!("Close pane {}?\nCross (Xbox: A): Confirm",menu.pane_id),
-            Some(CloseKind::Space)=>format!("Close space {}?\nCross (Xbox: A): Confirm",menu.workspace_id),
-        };
-        let cancel_menu = if self.voice_button == Btn::Menu { "L3 / left stick click" }
-                          else { "Options (Xbox: Menu)" };
-        Some(format!("{heading}\nStops its running processes.\nCircle (Xbox: B): Cancel\nCreate / Share (Xbox: View): Cancel\n{cancel_menu}: Cancel"))
-    }
-
-
-    fn open_close(&mut self, snap: &Snapshot) -> Vec<Action> {
-        if self.recording || self.transcribing {
-            return vec![toast("Voice in progress", "finish dictation before closing", Sound::None)];
-        }
-        let Some(p) = snap.focused.as_ref().filter(|p| !p.pane_id.is_empty() && !p.workspace_id.is_empty()) else {
-            return vec![toast("Nothing to close", "focus a pane first", Sound::None)];
-        };
-        self.enter_navigate();
-        self.close_menu = Some(CloseMenu { pane_id: p.pane_id.clone(), workspace_id: p.workspace_id.clone(), choice: None });
-        vec![toast("Close actions", "left face: close pane; top face: close space; right face: cancel", Sound::None)]
-    }
-
-    fn close_press(&mut self, b: Btn, snap: &Snapshot) -> Vec<Action> {
-        let mut menu = self.close_menu.take().expect("only called with a close menu");
-        if !snap.focused.as_ref().is_some_and(|p| p.pane_id == menu.pane_id && p.workspace_id == menu.workspace_id) {
-            return vec![toast("Close cancelled", "focus changed", Sound::None)];
-        }
-        if b == Btn::B || b == Btn::View || b == menu_button(self.voice_button) {
-            return vec![toast("Close cancelled", "", Sound::None)];
-        }
-        let actions = match b {
-            Btn::X | Btn::Y => {
-                let (kind, target) = if b == Btn::X {
-                    menu.choice = Some(CloseKind::Pane);
-                    ("pane", &menu.pane_id)
-                } else {
-                    menu.choice = Some(CloseKind::Space);
-                    ("space", &menu.workspace_id)
-                };
-                vec![toast("Confirm close", &format!("Close {kind} {target}? Stops its running processes. Cross (Xbox: A): Confirm; Circle (Xbox: B): Cancel"), Sound::Request)]
-            }
-            Btn::A => match menu.choice {
-                Some(CloseKind::Pane) => return vec![Action::ClosePane(menu.pane_id)],
-                Some(CloseKind::Space) => return vec![Action::CloseWorkspace(menu.workspace_id)],
-                None => vec![toast("Choose a close action", "left face: pane; top face: space", Sound::None)],
-            },
-            _ => vec![],
-        };
-        self.close_menu = Some(menu);
-        actions
     }
 
     fn press(&mut self, b: Btn, snap: &Snapshot) -> Vec<Action> {
@@ -281,7 +212,6 @@ impl Core {
     }
 
     fn enter_navigate(&mut self) {
-        self.cancel_close();
         self.mode = Mode::Navigate;
         self.respond_pane = None;
         self.interact_pane = None;

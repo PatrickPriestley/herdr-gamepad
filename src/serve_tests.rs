@@ -75,36 +75,13 @@ fn quiet_mode_feedback_preserves_the_key_press() {
     assert_eq!(fake.calls(), vec!["herdr agent send-keys w5:p1 enter", "herdr agent send-keys w5:p1 down"]);
 }
 
-#[test]
-fn snapshot_failure_disarms_pending_close() {
-    let s = crate::engine_tests::snap();
-    let mut c = Core::new(Btn::RStick);
-    assert_eq!(c.handle(Input::Press(Btn::Menu), &s), vec![toast("Close actions", "left face: close pane; top face: close space; right face: cancel", Sound::None)]);
-    assert!(matches!(c.handle(Input::Press(Btn::X), &s).first(), Some(Action::Toast { title, .. }) if title == "Confirm close"));
-    on_snapshot_failure(&mut c, Input::Press(Btn::A), "offline");
-    assert_eq!(c.handle(Input::Press(Btn::A), &s), vec![toast("Respond mode", "D-pad moves; Cross confirms; Circle returns to Navigate; Create / Share escapes", Sound::None)]);
-}
 
-#[test]
-fn close_requests_do_not_claim_completion_and_failure_is_reported() {
-    use crate::herdr::Herdr;
-    use crate::herdr_tests::Fake;
-    for choice in [Btn::X, Btn::Y] { for success in [false, true] {
-        let s = crate::engine_tests::snap(); let mut c = Core::new(Btn::RStick);
-        assert_eq!(c.handle(Input::Press(Btn::Menu), &s), vec![toast("Close actions", "left face: close pane; top face: close space; right face: cancel", Sound::None)]);
-        c.handle(Input::Press(choice), &s);
-        let actions = c.handle(Input::Press(Btn::A), &s);
-        let command = if choice == Btn::X { "herdr pane close w5:p1" } else { "herdr workspace close w5" };
-        let fake = Fake::new(vec![(command, if success {Ok("")} else {Err("target gone")}), ("herdr notification show", Ok(""))]);
-        apply_actions(&Herdr { runner: &fake }, actions, &mut crate::feedback::Feedback::default(), |_| panic!("unexpected recording"));
-        let expected = if success { vec![command] } else { vec![command, "herdr notification show Herdr refused --body target gone --sound request"] };
-        assert_eq!(fake.calls(), expected);
-    }}
-}
+
+
 
 #[test]
 fn mapping_explains_close_selection_confirmation_and_voice_collision() {
-    for text in ["CLOSE ACTIONS", "Square (Xbox: X)       Select close pane", "Triangle (Xbox: Y)     Select close space", "Cross (Xbox: A)        Confirm selected close", "Menu / Options opens close actions; if voice uses Menu, use left stick click."] {
+    for text in ["ACTIONS MENU", "close actions require a separate confirmation", "if voice uses Menu, use left stick click."] {
         assert!(MAPPING.contains(text), "mapping is missing {text}");
     }
 }
