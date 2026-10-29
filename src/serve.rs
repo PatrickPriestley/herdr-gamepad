@@ -26,12 +26,14 @@ pub fn serve() -> Result<(), String> {
     let mut gilrs = gilrs::Gilrs::new().map_err(|e| format!("gilrs: {e}"))?;
     let mut pad = Pad::new();
     let mut core = Core::new(cfg.voice_button);
+    core.set_preview_enabled(cfg.preview_before_send);
     let mut feedback = Feedback::default();
     let mut menu = crate::menu_runtime::MenuRuntime::new(cancellation.clone(), state.clone(), crate::config::dirs().1.join("config.toml"))?;
     let mut recorder: Option<Recorder> = None;
     let (tx, rx) = mpsc::channel::<Input>();
     crate::logging::event(format_args!("herd-gamepad: listening; {} controller(s) connected; hold {} to talk", gilrs.gamepads().count(), cfg.voice_button.label()));
     while !cancellation.cancelled() {
+        core.begin_tick();
         menu.tick(&mut core, &mut cfg);
         if let Some(message)=menu.take_notice(){feedback.emit(&herdr,&toast("Gamepad actions",&message,Sound::Request));}
         let inputs = next_inputs(|| {
@@ -58,10 +60,11 @@ pub fn serve() -> Result<(), String> {
                 }
             };
             if cancellation.cancelled() { break; }
-            crate::logging::event(format_args!("herd-gamepad: {} in {:?}", describe(&input), core.mode()));
+            let description = describe_for_log(&input, &core);
+            crate::logging::event(format_args!("herd-gamepad: {} in {:?}", description, core.mode()));
             let actions=core.handle(input,&snap);
             let mut recording_error=None;
-            apply_actions(&herdr, actions, &mut feedback, |action| {
+            let insertions=apply_actions(&herdr, actions, &mut feedback, |action| {
                 match action {
                     Action::StartRecording => match Recorder::start(cfg.max_seconds) {
                         Ok(r) => recorder = Some(r),
@@ -78,7 +81,14 @@ pub fn serve() -> Result<(), String> {
                     _ => unreachable!("only recording actions are delegated"),
                 }
             });
-            if let Some(e)=recording_error {feedback.emit(&herdr,&toast("Recording failed",&e,Sound::Request));}
+            for outcome in insertions {
+                let actions=finish_native(&mut core,outcome);
+                for action in actions { feedback.emit(&herdr,&action); }
+            }
+            if let Some(e)=recording_error {
+                core.handle(Input::TranscriptFailed(e.clone()), &snap);
+                feedback.emit(&herdr,&toast("Recording failed",&e,Sound::Request));
+            }
         }
     }
     drop(menu);
@@ -108,12 +118,47 @@ pub fn next_inputs(mut poll: impl FnMut() -> Option<Option<Input>>, rx: &mpsc::R
     inputs
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum NativeOutcome {
+    Cleared(Result<(),String>),
+    Inserted(Pane,Result<(),String>),
+    Submitted(Pane,Result<(),crate::herdr::NativeSubmitError>),
+}
+
+pub fn finish_native(core: &mut Core, outcome: NativeOutcome) -> Vec<Action> {
+    match outcome {
+        NativeOutcome::Cleared(result)=>vec![match result {
+            Ok(())=>toast("Input line cleared","",Sound::None),
+            Err(error)=>toast("Clear unconfirmed",&error,Sound::Request),
+        }],
+        NativeOutcome::Inserted(target,result)=>core.insertion_result(target,result),
+        NativeOutcome::Submitted(target,result)=>match result {
+            Err(crate::herdr::NativeSubmitError::Refused(error))=>core.submission_result(target,Some(error)),
+            Err(crate::herdr::NativeSubmitError::Unconfirmed(error))=>{
+                core.submission_result(target,None);
+                vec![toast("Submission unconfirmed", &error, Sound::Request)]
+            },
+            Ok(())=>core.submission_result(target,None),
+        },
+    }
+}
+
 /// Apply one input's actions, delegating hardware recording to the daemon.
-pub fn apply_actions(herdr: &Herdr<impl Runner>, actions: Vec<Action>, feedback: &mut Feedback, mut record: impl FnMut(Action)) {
+pub fn apply_actions(herdr: &Herdr<impl Runner>, actions: Vec<Action>, feedback: &mut Feedback, mut record: impl FnMut(Action)) -> Vec<NativeOutcome> {
+    let mut insertions=Vec::new();
     for action in actions {
         match action {
             Action::StartRecording | Action::StopRecording | Action::CancelRecording => record(action),
             Action::Toast {..} => feedback.emit(herdr,&action),
+            Action::InsertText { ref target, .. } => {
+                let result=herdr.apply(&action);
+                // Return delivery status without logging private transcript contents.
+                insertions.push(NativeOutcome::Inserted(target.clone(),result));
+            },
+            Action::ClearInput {..} => insertions.push(NativeOutcome::Cleared(herdr.apply(&action))),
+            Action::SubmitText {ref target} => {
+                insertions.push(NativeOutcome::Submitted(target.clone(),herdr.submit_native(target)));
+            },
             other => if let Err(e) = herdr.apply(&other) {
                 crate::logging::event(format_args!("herd-gamepad: {other:?}: {e}"));
                 feedback.emit(herdr,&toast("Herdr refused", &e, Sound::Request));
@@ -122,6 +167,7 @@ pub fn apply_actions(herdr: &Herdr<impl Runner>, actions: Vec<Action>, feedback:
             },
         }
     }
+    insertions
 }
 
 /// Whether the core needs to see Herdr for `input`. Starting a recording, releasing any other button, the
@@ -141,12 +187,19 @@ pub fn needs_snapshot(input: &Input, voice_button: Btn) -> bool {
 /// dropped as "nothing was focused"); a transcript that cannot be routed fails instead, so the next recording
 /// can start.
 pub fn on_snapshot_failure(core: &mut Core, input: Input, err: &str) -> Option<Input> {
-    core.menu_exit();
+    core.snapshot_failed();
     match input {
+        Input::Transcript(_) if core.preview_in_progress() => Some(input),
         Input::Transcript(_) => Some(Input::TranscriptFailed(format!("Herdr unavailable: {err}"))),
         Input::Release(_) | Input::Disconnected | Input::TranscriptFailed(_) => Some(input),
         Input::Press(_) | Input::Connected => None,
     }
+}
+
+pub(crate) fn describe_for_log(input: &Input, core: &Core) -> String {
+    if core.preview_in_progress() && matches!(input, Input::Transcript(_)) {
+        "Transcript ready for preview".into()
+    } else { describe(input) }
 }
 
 /// An input for the log: a transcript as its first 60 characters, everything else as is.
@@ -264,10 +317,11 @@ Cross (Xbox: A)        Enter Respond / Interact
 RESPOND
 D-pad                  Move through the agent's options
 Cross (Xbox: A)        Enter / confirm
+Square (Xbox: X)       Clear input line (Codex / Claude)
 Circle (Xbox: B)       Return to Navigate
 Create / Share (View)  Escape / back in the app
 Shoulders, triggers,
-  Triangle / Square    Navigate as above and leave Respond
+  Triangle             Navigate as above and leave Respond
 
 INTERACT (NON-AGENT PANES)
 Cross enters this mode on the focused pane without sending a key.
@@ -291,6 +345,8 @@ Circle (Xbox: B)       Back; View or the menu button closes
 New space, worktrees, pane actions, Close…, Settings, Logs and Controls.
 Closing stops running processes in the pane or space. Focus changes cancel.
 Finish dictation before opening actions.
+Native preview: Cross sends; Square clears the dictated input line.
+Clear uses standard Codex/Claude editor shortcuts; multiline drafts clear only the current line.
 
 D-pad always moves pane focus in Navigate; Cross enters Respond on an agent.
 One Cross (Xbox: A) press answers a waiting agent, including from Navigate.

@@ -8,6 +8,10 @@ use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+/// Only a refusal before dispatch is safe to rearm for another controller press.
+#[derive(Debug, PartialEq, Eq)]
+pub enum NativeSubmitError { Refused(String), Unconfirmed(String) }
+
 /// Runs a command; Ok(stdout) on exit 0, Err(stderr) otherwise. Faked in tests.
 pub trait Runner {
     fn run(&self, argv: &[&str]) -> Result<String, String>;
@@ -111,6 +115,9 @@ fn drain_available(pipe: &mut impl Read, buf: &mut Vec<u8>) -> io::Result<bool> 
 pub struct Herdr<R: Runner> { pub runner: R }
 
 impl<R: Runner> Herdr<R> {
+    pub fn focused_snapshot(&self) -> Result<Snapshot, String> {
+        Ok(Snapshot { focused: parse_pane(&self.json(&["herdr", "pane", "list"])?), ..Snapshot::default() })
+    }
     pub fn snapshot(&self) -> Result<Snapshot, String> {
         let focused = parse_pane(&self.json(&["herdr", "pane", "list"])?);
         let workspaces = parse_workspaces(&self.json(&["herdr", "workspace", "list"])?);
@@ -122,7 +129,23 @@ impl<R: Runner> Herdr<R> {
         Ok(Snapshot { focused, workspaces, tabs, agents })
     }
 
+    pub fn submit_native(&self, target: &Pane) -> Result<(), NativeSubmitError> {
+        let snapshot=self.focused_snapshot().map_err(NativeSubmitError::Refused)?;
+        crate::dictation::validate_target(target,&snapshot).map_err(NativeSubmitError::Refused)?;
+        let argv=argv_for(&Action::SubmitText {target:target.clone()});
+        self.runner.run(&argv.iter().map(String::as_str).collect::<Vec<_>>())
+            .map(|_|()).map_err(|e|NativeSubmitError::Unconfirmed(error_message(&e)))
+    }
     pub fn apply(&self, action: &Action) -> Result<(), String> {
+        if let Action::SubmitText {target} = action {
+            return self.submit_native(target).map_err(|e|match e {NativeSubmitError::Refused(e)|NativeSubmitError::Unconfirmed(e)=>e});
+        }
+        if let Action::ClearInput {target} = action {
+            crate::dictation::validate_clear_target(target,&self.focused_snapshot()?)?;
+        }
+        if let Action::InsertText { target, .. } = action {
+            crate::dictation::validate_target(target, &self.focused_snapshot()?)?;
+        }
         let argv = argv_for(action);
         if argv.is_empty() { return Ok(()); }
         let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
@@ -215,6 +238,9 @@ pub fn argv_for(a: &Action) -> Vec<String> {
             v.extend(keys.iter().map(|k| key_name(*k).to_string()));
             v
         }
+        Action::ClearInput {target} => s(&["herdr", "agent", "send-keys", &target.pane_id, "ctrl+a", "ctrl+k"]),
+        Action::InsertText { target, text } => s(&["herdr", "pane", "send-text", &target.pane_id, text]),
+        Action::SubmitText { target } => s(&["herdr", "agent", "send-keys", &target.pane_id, "enter"]),
         Action::Prompt { target, text } => s(&["herdr", "agent", "prompt", target, text]),
         Action::Toast { title, body, sound } => {
             let mut v = s(&["herdr", "notification", "show", title]);

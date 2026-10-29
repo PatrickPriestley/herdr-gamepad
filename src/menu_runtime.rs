@@ -248,7 +248,7 @@ impl MenuRuntime {
     pub fn take_notice(&mut self) -> Option<String> {
         self.notice.take()
     }
-    fn is_open(&self) -> bool {
+    pub fn is_open(&self) -> bool {
         self.opening || self.model.is_some()
     }
     fn close(&mut self, core: &mut Core, cfg: &mut Config) {
@@ -275,9 +275,13 @@ impl MenuRuntime {
             return;
         }
         if let Some((snapshot, new)) = self.committed.take() {
+            if cfg.preview_before_send && !new.preview_before_send {
+                self.notice = Some("Preview off. Existing input remains unsent; clear or submit it with the keyboard before dictating again.".into());
+            }
             self.active = snapshot;
             *cfg = new;
             core.rebind(cfg.voice_button);
+            core.set_preview_enabled(cfg.preview_before_send);
         }
     }
     /// true means consumed; call before normal-mode snapshot acquisition.

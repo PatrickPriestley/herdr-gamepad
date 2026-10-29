@@ -65,6 +65,7 @@ pub struct SettingsSnapshot {
     pub labels: LabelStyle,
     pub voice_button: Btn,
     pub max_seconds: u64,
+    pub preview_before_send: bool,
     pub model: String,
     pub language: String,
     pub config_path: String,
@@ -451,6 +452,7 @@ enum RowAction {
     CycleLabels,
     CycleVoice,
     CycleDuration,
+    TogglePreview,
     SaveSettings,
     Back,
     RefreshLogs,
@@ -883,6 +885,7 @@ impl Menu {
                     .map(|i| presets[(i + 1) % presets.len()])
                     .unwrap_or(15);
             }
+            RowAction::TogglePreview => self.draft.preview_before_send = !self.draft.preview_before_send,
             RowAction::SaveSettings => {
                 return self.mutate(Command::SaveSettings {
                     original: self.settings.clone(),
@@ -1285,6 +1288,11 @@ impl Menu {
                     None,
                     RowAction::Open(Screen::VoiceConfig),
                 ),
+                row(
+                    format!("Preview dictation before sending: {}", if self.draft.preview_before_send { "On" } else { "Off" }),
+                    None,
+                    RowAction::TogglePreview,
+                ),
                 row("Save".into(), None, RowAction::SaveSettings),
                 row("Discard".into(), None, RowAction::Back),
             ],
@@ -1372,6 +1380,7 @@ impl Menu {
                         style.button(Btn::Y),
                         style.button(Btn::A)
                     ),
+                    format!("Preview / Respond: {} clears input line (Codex / Claude)", style.button(Btn::X)),
                     "Opening the menu returns to Navigate mode".into(),
                 ]
             }

@@ -7,14 +7,14 @@ fn state() -> PathBuf { PathBuf::from("/tmp/state") }
 #[test]
 fn an_empty_config_gives_the_defaults() {
     let c = parse("", &state()).unwrap();
-    assert_eq!(c, Config { labels: crate::menu::LabelStyle::Both, model: Path::new("/tmp/state/models/ggml-base.en.bin").into(), language: "en".into(), voice_button: Btn::RStick, max_seconds: 60 });
+    assert_eq!(c, Config { labels: crate::menu::LabelStyle::Both, model: Path::new("/tmp/state/models/ggml-base.en.bin").into(), language: "en".into(), voice_button: Btn::RStick, max_seconds: 60, preview_before_send: false });
 }
 
 #[test]
 fn every_field_can_be_set() {
     let text = "[whisper]\nmodel = \"/m/small.bin\"\nlanguage = \"de\"\n[voice]\nbutton = \"menu\"\nmax_seconds = 20\n";
     let c = parse(text, &state()).unwrap();
-    assert_eq!(c, Config { labels: crate::menu::LabelStyle::Both, model: "/m/small.bin".into(), language: "de".into(), voice_button: Btn::Menu, max_seconds: 20 });
+    assert_eq!(c, Config { labels: crate::menu::LabelStyle::Both, model: "/m/small.bin".into(), language: "de".into(), voice_button: Btn::Menu, max_seconds: 20, preview_before_send: false });
 }
 
 #[test]
@@ -80,4 +80,15 @@ fn load_from_treats_a_missing_file_as_defaults_but_reports_other_read_errors() {
 #[test]
 fn labels_reject_unknown_preferences() {
     assert!(parse("[ui]\nlabels = 'invalid'", &state()).is_err());
+}
+
+#[test]
+fn preview_before_send_is_optional_and_strictly_boolean() {
+    assert!(parse("[voice]\npreview_before_send = true", &state()).unwrap().preview_before_send);
+    assert!(!parse("", &state()).unwrap().preview_before_send);
+    assert!(!parse("[voice]\npreview_before_send = false", &state()).unwrap().preview_before_send);
+    for value in ["1", "'true'", "[]"] {
+        let err = parse(&format!("[voice]\npreview_before_send = {value}"), &state()).unwrap_err();
+        assert_eq!(err, "config.toml: voice.preview_before_send must be a boolean");
+    }
 }

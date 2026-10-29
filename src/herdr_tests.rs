@@ -305,3 +305,88 @@ fn interact_routes_non_agent_keys_through_pane_interface() {
         assert_eq!(argv_for(&actions[0]),vec!["herdr","pane","send-keys","w5:p2",key]);
     }
 }
+
+#[test]
+fn focused_snapshot_reads_only_live_pane_identity() {
+    let f=fake(); let s=Herdr{runner:&f}.focused_snapshot().unwrap();
+    assert_eq!(s.focused.unwrap().pane_id,"w1M:p1");
+    assert_eq!(f.calls(),vec!["herdr pane list"]);
+    let f=Fake::new(vec![("herdr pane list",Err("offline"))]);
+    assert!(Herdr{runner:f}.focused_snapshot().is_err());
+}
+
+#[test]
+fn native_preview_inserts_without_enter_and_rechecks_the_target() {
+    let target=Herdr { runner:fake() }.focused_snapshot().unwrap().focused.unwrap();
+    let f=Fake::new(vec![("herdr pane list",Ok(PANE_CURRENT)),("herdr pane send-text",Ok("{}"))]);
+    let action=Action::InsertText {target:target.clone(),text:"hello world".into()};
+    Herdr{runner:&f}.apply(&action).unwrap();
+    assert_eq!(f.calls(),["herdr pane list","herdr pane send-text w1M:p1 hello world"]);
+    let f=Fake::new(vec![("herdr pane list",Ok(PANE_CURRENT_SHELL))]);
+    assert!(Herdr{runner:&f}.apply(&action).is_err());
+    assert_eq!(f.calls(),["herdr pane list"]);
+    let f=Fake::new(vec![("herdr pane list",Ok(PANE_CURRENT)),("herdr agent send-keys",Ok("{}"))]);
+    Herdr{runner:&f}.apply(&Action::SubmitText {target}).unwrap();
+    assert_eq!(f.calls(),["herdr pane list","herdr agent send-keys w1M:p1 enter"]);
+}
+
+#[test]
+fn native_preview_submit_rejects_drift_and_insertion_propagates_errors() {
+    let target=Herdr { runner:fake() }.focused_snapshot().unwrap().focused.unwrap();
+    let f=Fake::new(vec![("herdr pane list",Ok(PANE_CURRENT_SHELL))]);
+    assert!(Herdr{runner:&f}.apply(&Action::SubmitText {target:target.clone()}).is_err());
+    assert_eq!(f.calls(),["herdr pane list"]);
+    let f=Fake::new(vec![("herdr pane list",Ok(PANE_CURRENT)),("herdr pane send-text",Err("offline"))]);
+    assert_eq!(Herdr{runner:&f}.apply(&Action::InsertText {target,text:"hello".into()}),Err("offline".into()));
+    assert_eq!(f.calls().len(),2);
+}
+
+#[test]
+fn native_submit_distinguishes_refusal_from_uncertain_delivery() {
+    let target=Herdr { runner:fake() }.focused_snapshot().unwrap().focused.unwrap();
+    let f=Fake::new(vec![("herdr pane list",Ok(PANE_CURRENT_SHELL))]);
+    assert!(matches!(Herdr{runner:&f}.submit_native(&target),Err(NativeSubmitError::Refused(_))));
+    assert_eq!(f.calls(),["herdr pane list"]);
+    let f=Fake::new(vec![("herdr pane list",Ok(PANE_CURRENT)),("herdr agent send-keys",Err("lost"))]);
+    assert_eq!(Herdr{runner:&f}.submit_native(&target),Err(NativeSubmitError::Unconfirmed("lost".into())));
+    assert_eq!(f.calls().len(),2);
+}
+
+#[test]
+fn native_preview_cli_passes_only_the_transcript_as_text() {
+    let target=crate::engine_tests::snap().focused.unwrap();
+    for text in ["Testing voice.","-- literal hyphens","-leading"] {
+        assert_eq!(argv_for(&Action::InsertText{target:target.clone(),text:text.into()}),
+            vec!["herdr","pane","send-text",&target.pane_id,text]);
+    }
+}
+
+#[test]
+fn clear_native_line_uses_only_editor_keys_after_target_validation() {
+    for kind in ["claude","codex"] {
+        let pane=PANE_CURRENT.replace("claude",kind);
+        let response: &'static str=Box::leak(pane.into_boxed_str());
+        let target=Herdr{runner:Fake::new(vec![("herdr pane list",Ok(response))])}.focused_snapshot().unwrap().focused.unwrap();
+        let f=Fake::new(vec![("herdr pane list",Ok(response)),("herdr agent send-keys",Ok("{}"))]);
+        Herdr{runner:&f}.apply(&Action::ClearInput{target}).unwrap();
+        assert_eq!(f.calls(),["herdr pane list","herdr agent send-keys w1M:p1 ctrl+a ctrl+k"]);
+    }
+}
+#[test]
+fn clear_native_line_refuses_changed_blocked_or_unsupported_agents() {
+    let original=Herdr{runner:fake()}.focused_snapshot().unwrap().focused.unwrap();
+    for variant in 0..5 {
+        let mut target=original.clone();
+        let response=match variant {
+            0=>PANE_CURRENT_SHELL.to_string(),
+            1=>PANE_CURRENT.replace("working","blocked"),
+            2=>PANE_CURRENT.replace("claude","codex"),
+            3=>{target.agent=Some("other".into());PANE_CURRENT.replace("claude","other")},
+            _=>PANE_CURRENT.replace("w1M:p1","other-pane"),
+        };
+        let response: &'static str=Box::leak(response.into_boxed_str());
+        let f=Fake::new(vec![("herdr pane list",Ok(response))]);
+        assert!(Herdr{runner:&f}.apply(&Action::ClearInput{target}).is_err());
+        assert_eq!(f.calls(),["herdr pane list"]);
+    }
+}

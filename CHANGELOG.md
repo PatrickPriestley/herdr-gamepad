@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Clear unsent dictation with Square in native preview or Respond (Codex/Claude standard input-line shortcuts).
+
+- Add optional dictation preview directly in the agent input field, with Cross to submit.
+- Make saving preview Off restore automatic sending for subsequent recordings.
+
 - Resolve worktrees from the focused pane when its space was opened outside a Git repository.
 
 - Add the controller actions menu for spaces, worktrees, pane actions, settings, logs and controls.

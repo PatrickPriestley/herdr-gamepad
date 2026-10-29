@@ -206,3 +206,29 @@ fn destination_metadata_errors_are_reported_instead_of_allowed_as_absence() {
     assert_eq!(fs::read_to_string(&p).unwrap(), "not a directory");
     fs::remove_dir_all(p.parent().unwrap()).unwrap();
 }
+
+#[test]
+fn preview_setting_roundtrips_and_preserves_comments_and_absent_defaults() {
+    let p = fixture();
+    let text = "# settings\n[voice]\nbutton = 'rstick' # binding\n[other]\nkeep = 42\n";
+    fs::write(&p, text).unwrap();
+    let (old, _) = load(&p, p.parent().unwrap()).unwrap();
+    let mut new = old.clone();
+    new.preview_before_send = true;
+    let (saved, cfg) = save(&p, p.parent().unwrap(), &old, &new).unwrap();
+    assert!(cfg.preview_before_send);
+    assert!(saved.preview_before_send);
+    assert!(fs::read_to_string(&p).unwrap().contains("# binding"));
+    assert!(fs::read_to_string(&p).unwrap().contains("keep = 42"));
+    let mut disabled = saved.clone();
+    disabled.preview_before_send = false;
+    let (_, cfg) = save(&p, p.parent().unwrap(), &saved, &disabled).unwrap();
+    assert!(!cfg.preview_before_send);
+    fs::write(&p, text).unwrap();
+    let (old, _) = load(&p, p.parent().unwrap()).unwrap();
+    let mut label_only = old.clone();
+    label_only.labels = LabelStyle::Xbox;
+    save(&p, p.parent().unwrap(), &old, &label_only).unwrap();
+    assert!(!fs::read_to_string(&p).unwrap().contains("preview_before_send"));
+    fs::remove_dir_all(p.parent().unwrap()).unwrap();
+}

@@ -44,7 +44,7 @@ herdr plugin install PatrickPriestley/herdr-gamepad --ref v0.2.0
   tabs. Triangle jumps to the next agent that needs you; Square zooms the pane. Cross enters
   Respond on an agent pane or Interact on any other pane.
 - **Respond**: keys go to the agent. D-pad moves through options, Cross is Enter, Create is
-  Escape, Circle returns to Navigate. Pressing Cross on an agent that is already waiting
+  Escape, Square clears the current input line in Codex/Claude, and Circle returns to Navigate. Pressing Cross on an agent that is already waiting
   answers it in one press.
 - **Interact**: keys go to a non-agent pane. D-pad sends arrows, Cross Enter, Square Space,
   Create Escape, Circle returns to Navigate. In the PR tracker, left/right pick a category
@@ -55,6 +55,33 @@ there. Moving focus to another pane also returns to Navigate without sending a k
 
 **Dictate**: hold R3, speak, release. The text is submitted to the agent you were focused
 on; it is dropped if focus moved, the pane has no agent, or the agent is at a dialog.
+
+To review speech before sending, enable **Preview dictation before sending** in
+Actions → Settings, then Save and close the menu. Dictation is inserted directly into
+the focused agent's existing message field, without Enter or a separate popup.
+Press **Cross (Xbox: A)** once to submit after reviewing it, or **Square (Xbox: X)** to clear it. The original agent pane
+must still be focused and available. Pressing a navigation button, opening Actions, pressing Circle, or
+disconnecting cancels the staged Cross submission; the text stays in the editor and
+can be edited or submitted with the keyboard.
+
+Turn the setting **Off**, Save, and close the menu to restore automatic sending for
+subsequent recordings. Changing the setting never submits or erases text already in
+the editor. A recording already in progress keeps the setting it started with.
+
+**Delete unsent dictation:** press Square while the preview text is staged, or enter
+Respond mode with Cross and then press Square. This clears the current logical input
+line in Codex and Claude using their standard Ctrl+A / Ctrl+K editor shortcuts, then
+returns to Navigate. Spoken text is one logical line, even when it wraps visually or
+contains several appended recordings. If you add actual line breaks with the keyboard,
+only the current line clears. Custom/Vim bindings and other agents are not supported
+by this shortcut. Clear refuses while recording or at an agent approval dialog.
+
+Native preview inserts at the editor cursor. Recording again still adds text; automatic
+replacement is not implemented. Dictation whitespace is flattened to spaces and terminal control
+characters are removed so text insertion cannot act as Enter or terminal commands.
+Failed insertion does not enable controller submission; inspect the editor before
+retrying because a failed command may have inserted some text. Preview transcript
+contents are omitted from routine logs.
 
 **Actions**: Options opens a popup with spaces, worktrees, pane actions, close controls,
 settings, logs and controls. D-pad selects rows and Cross activates. Close actions name the
@@ -69,7 +96,7 @@ Routine status goes to the log ("Gamepad: show logs"); only errors appear as not
 |---|---|---|---|---|---|---|
 | Bottom face | A | Cross | Respond / Interact | Enter | Enter | Activate |
 | Right face | B | Circle | | To Navigate | To Navigate | Back |
-| Left face | X | Square | Zoom | Zoom, to Navigate | Space | Details / delete text |
+| Left face | X | Square | Zoom (clear staged dictation) | Clear input line, to Navigate | Space | Details / delete text |
 | Top face | Y | Triangle | Next agent | Same, to Navigate | Same, to Navigate | Text character page |
 | D-pad | | | Focus pane | Arrows | Arrows | Select / navigate |
 | Shoulders | LB / RB | L1 / R1 | Prev / next space | Same, to Navigate | Same, to Navigate | |
@@ -131,6 +158,7 @@ language = "en"
 [voice]
 button = "rstick"   # rstick, lstick or menu
 max_seconds = 60
+preview_before_send = false  # true: insert in agent input; Cross submits
 
 [ui]
 labels = "both"    # both, playstation or xbox
