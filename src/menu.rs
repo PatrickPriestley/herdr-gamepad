@@ -1381,7 +1381,7 @@ impl Menu {
                         style.button(Btn::A)
                     ),
                     format!("Preview / Respond: {} clears input line (Codex / Claude)", style.button(Btn::X)),
-                    "Right stick up/down: scroll pane (patched Herdr required)".into(),
+                    "Right stick up/down: scroll terminal history".into(),
                     "Center the stick after buttons, menus or dictation".into(),
                     "Opening the menu returns to Navigate mode".into(),
                 ]

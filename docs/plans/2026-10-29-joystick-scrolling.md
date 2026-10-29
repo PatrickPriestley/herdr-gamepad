@@ -25,3 +25,9 @@ Use vertical right-stick movement to scroll the selected pane's terminal history
 3. Preserve existing stick, worker, daemon ownership and RPC timeout/cancellation coverage. Production calls retain the 300 ms deadline; only large-response test fixtures use a two-second budget.
 4. Update README, mapping and Controls help to describe terminal history and application-owned-history limitations.
 5. Mutation-check changed guards, run the complete suite, obtain independent review and update draft PR #15. Hardware validation remains manual. Do not send synthetic input to live user panes.
+
+## Verification of the revision
+- Seven assertion-red regressions established the missing scrollback behavior before implementation: fresh offsets, saturation/clamping, boundary no-ops, no-history/invalid metrics, focus/identity validation, mutation-response validation, and cancellation after lookup.
+- The final local suite passed 368 unit tests and four integration tests; one existing live-device test remains ignored.
+- Eighteen changed-adapter guard mutations were killed by behavioral test failures and restored. The transport deadline/size and earlier controller/worker guard coverage remains in place.
+- Read-only live probes confirmed the stock 0.9.1 schema, `pane.get` response shape, and zero-history behavior. No synthetic input or scrolling was sent to live user panes. Controller validation on real history remains manual.

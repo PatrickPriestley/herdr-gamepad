@@ -66,20 +66,23 @@ fn response(request: Value, result: Value) -> Vec<u8> {
 #[test]
 fn scroll_rpc_sends_exact_request_and_reads_result() {
     let server = Server::new(|request| {
-        assert_eq!(request["method"], "pane.scroll_wheel");
+        assert_eq!(request["method"], "pane.scroll");
         assert_eq!(
             request["params"],
-            json!({"pane_id":"p_1","direction":"up","lines":2,"focused_only":true})
+            json!({"pane_id":"p_1","offset_from_bottom":2})
         );
-        response(request, json!({"type":"ok"}))
+        response(
+            request,
+            json!({"type":"pane_info","pane":{"pane_id":"p_1"}}),
+        )
     });
     assert_eq!(
         call(
             &server.path,
-            "pane.scroll_wheel",
-            json!({"pane_id":"p_1","direction":"up","lines":2,"focused_only":true})
+            "pane.scroll",
+            json!({"pane_id":"p_1","offset_from_bottom":2})
         ),
-        Ok(json!({"type":"ok"}))
+        Ok(json!({"type":"pane_info","pane":{"pane_id":"p_1"}}))
     );
 }
 #[test]
@@ -150,7 +153,7 @@ fn scroll_rpc_requires_object_result_and_preserves_error_detail() {
         )
         .into_bytes()
     });
-    assert!(call(&server.path, "pane.scroll_wheel", json!({}))
+    assert!(call(&server.path, "pane.scroll", json!({}))
         .unwrap_err()
         .contains("unknown_method"));
 }
@@ -190,7 +193,7 @@ fn scroll_rpc_checks_gesture_after_connect_before_writing() {
         bytes
     });
     let checks = Cell::new(0);
-    let result = call_if_current(&path, "pane.scroll_wheel", json!({}), &|| {
+    let result = call_if_current(&path, "pane.scroll", json!({}), &|| {
         checks.set(checks.get() + 1);
         checks.get() == 1
     });
@@ -205,7 +208,7 @@ fn scroll_rpc_cancelled_gesture_never_connects() {
     assert_eq!(
         crate::scroll_rpc::call_if_current(
             std::path::Path::new("/tmp/missing-cancelled-scroll"),
-            "pane.scroll_wheel",
+            "pane.scroll",
             json!({}),
             &|| false
         ),
@@ -227,7 +230,7 @@ fn scroll_rpc_keeps_the_result_after_a_request_was_sent() {
         .into_bytes()
     });
     let result =
-        crate::scroll_rpc::call_if_current(&server.path, "pane.scroll_wheel", json!({}), &|| {
+        crate::scroll_rpc::call_if_current(&server.path, "pane.scroll", json!({}), &|| {
             current.load(Ordering::SeqCst)
         });
     assert!(result.unwrap_err().contains("unknown_method"));

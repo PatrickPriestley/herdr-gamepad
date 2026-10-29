@@ -104,21 +104,25 @@ Routine status goes to the log ("Gamepad: show logs"); only errors appear as not
 | Back | View | Create | | Escape | Escape | Close |
 | Menu | Menu | Options | Actions menu | Actions menu | Actions menu | Close |
 | Right stick click | | R3 | Hold to dictate | Hold to dictate | Hold to dictate | |
-| Right stick up/down | | | Scroll selected pane | Scroll selected pane | Scroll selected pane | |
+| Right stick up/down | | | Scroll terminal history | Scroll terminal history | Scroll terminal history | |
 
 If the voice button is set to Options, L3 opens the actions menu.
 
-**Joystick scrolling requires a patched Herdr build exposing `pane.scroll_wheel`.**
-The tested stable Herdr 0.9.1 build does not provide this API. Other controls remain
-usable when the API is missing; attempting to scroll reports that support is unavailable.
+**Joystick scrolling uses the existing Herdr `pane.scroll` API, available in the
+probed Herdr 0.9.1 build. No custom Herdr patch is required.**
 
-Tilt the right stick up/down to scroll the selected pane, including when expanded.
-A stronger tilt scrolls faster. Scrolling uses Herdr's mouse-wheel routing, so the
-pane application decides how wheel events behave. The plugin does not substitute PageUp or inject text. Scrolling pauses during dictation and gamepad menus. After a
-button press, focus change or error, return a tilted stick to the center before
-scrolling again. One wheel request already sent to Herdr can finish after you stop
-(maximum three wheel steps); pending repeats are discarded. The left stick and
-horizontal movement are unchanged.
+Tilt the right stick up/down to scroll the selected pane's terminal history,
+including when expanded. A stronger tilt scrolls faster. This controls terminal
+scrollback only: an application's own internal list or transcript may not be
+available as terminal history. A pane with no history reports that limitation;
+the plugin does not send wheel events, PageUp, arrow keys or text as a fallback.
+
+Scrolling pauses during dictation and gamepad menus. After a button press,
+focus change or error, return a tilted stick to the center before scrolling
+again. Each gesture stays bound to its original pane and checks focus before
+updating. An update already in progress may finish on the previous pane after
+a focus change; the API does not make the focus check and update atomic.
+Pending repeats are discarded. The left stick and horizontal movement are unchanged.
 
 ## Controller actions menu
 

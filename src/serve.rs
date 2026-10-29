@@ -316,7 +316,7 @@ Left / right trigger   LT / RT       L2 / R2
 Back / Select          View          Create (PS5) / Share (PS4)
 Menu                   Menu          Options
 Left / right stick     Stick clicks  L3 / R3
-Right stick up/down    Scroll selected pane (patched Herdr required)
+Right stick up/down    Scroll selected pane terminal history
 
 NAVIGATE
 D-pad                  Focus a neighbouring pane
@@ -348,9 +348,10 @@ Focus changes or an agent appearing leave Interact without sending a key.
 PR Tracker: left/right choose categories; Square opens details; up/down move.
 
 SCROLLING (ALL MODES)
-Tilt right stick up/down to scroll the selected or expanded pane.
+Tilt right stick up/down to scroll selected or expanded pane terminal history.
 Stronger tilt scrolls faster. Return to center after buttons or focus changes.
-Paused during dictation and actions menus. Requires Herdr pane.scroll_wheel.
+Paused during dictation and actions menus. Uses the existing pane.scroll API.
+Application-owned history may be unavailable; no keys or wheel events are sent.
 
 ACTIONS MENU
 Menu / Options opens actions; if voice uses Menu, use left stick click.

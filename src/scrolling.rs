@@ -1,4 +1,4 @@
-//! Right-stick gestures and bounded, asynchronous wheel dispatch.
+//! Right-stick gestures and bounded, asynchronous terminal scrollback updates.
 use crate::engine::Input;
 use std::time::{Duration, Instant};
 
@@ -129,23 +129,73 @@ impl Backend for SocketBackend {
         still_current: &dyn Fn() -> bool,
     ) -> Result<(), String> {
         let path = self.path.as_ref().ok_or("HERDR_SOCKET_PATH is missing")?;
-        let result = crate::scroll_rpc::call_if_current(
+        let Some(result) = crate::scroll_rpc::call_if_current(
             path,
-            "pane.scroll_wheel",
-            json!({
-                "pane_id": pane, "direction": if steps > 0 { "up" } else { "down" },
-                "lines": steps.unsigned_abs(), "focused_only": true,
-            }),
+            "pane.get",
+            json!({"pane_id":pane}),
             still_current,
-        )?;
-        let Some(result) = result else {
+        )?
+        else {
             return Ok(());
         };
-        if result.get("type").and_then(|v| v.as_str()) != Some("ok") {
-            return Err("Unexpected wheel response".into());
+        let current = scroll_pane(&result, pane)?;
+        if current.get("focused").and_then(|v| v.as_bool()) != Some(true) {
+            return Err("stale_pane_target".into());
         }
+        let (offset, max) = scroll_metrics(current)?;
+        if max == 0 {
+            return Err("No terminal scrollback is available in this pane".into());
+        }
+        let distance = u64::from(steps.unsigned_abs());
+        let next = if steps > 0 {
+            offset.saturating_add(distance).min(max)
+        } else {
+            offset.saturating_sub(distance)
+        };
+        if next == offset {
+            return Ok(());
+        }
+        let Some(result) = crate::scroll_rpc::call_if_current(
+            path,
+            "pane.scroll",
+            json!({"pane_id":pane,"offset_from_bottom":next}),
+            still_current,
+        )?
+        else {
+            return Ok(());
+        };
+        scroll_metrics(scroll_pane(&result, pane)?)?;
         Ok(())
     }
+}
+
+fn scroll_pane<'a>(
+    result: &'a serde_json::Value,
+    expected: &str,
+) -> Result<&'a serde_json::Value, String> {
+    if result.get("type").and_then(|v| v.as_str()) != Some("pane_info") {
+        return Err("Unexpected pane info response".into());
+    }
+    result
+        .get("pane")
+        .filter(|pane| pane.get("pane_id").and_then(|v| v.as_str()) == Some(expected))
+        .ok_or_else(|| "Unexpected scroll pane".into())
+}
+
+fn scroll_metrics(pane: &serde_json::Value) -> Result<(u64, u64), String> {
+    let metrics = pane.get("scroll").ok_or("Invalid scroll metrics")?;
+    let offset = metrics
+        .get("offset_from_bottom")
+        .and_then(|v| v.as_u64())
+        .ok_or("Invalid scroll metrics")?;
+    let max = metrics
+        .get("max_offset_from_bottom")
+        .and_then(|v| v.as_u64())
+        .ok_or("Invalid scroll metrics")?;
+    if offset > max {
+        return Err("Invalid scroll metrics".into());
+    }
+    Ok((offset, max))
 }
 
 impl Pump {
@@ -196,7 +246,7 @@ fn notice(error: &str) -> String {
         || error.contains("unknown variant")
         || error.contains("unknown method")
     {
-        "This Herdr build does not support joystick scrolling. Use a build with pane.scroll_wheel support.".into()
+        "This Herdr build does not expose terminal scrollback through pane.scroll.".into()
     } else if error.contains("stale_pane_target") {
         "Pane focus changed. Center the right stick before scrolling the selected pane.".into()
     } else {
@@ -214,7 +264,7 @@ fn current(shared: &Mutex<Shared>, now: Instant) -> Option<Intent> {
     })
 }
 
-/// A single worker consumes only the latest desired gesture; it never queues wheel commands.
+/// A single worker consumes only the latest desired gesture; it never queues scroll updates.
 pub struct Worker {
     shared: Arc<Mutex<Shared>>,
     thread: Option<JoinHandle<()>>,

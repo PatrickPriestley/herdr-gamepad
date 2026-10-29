@@ -86,7 +86,7 @@ fn desired(epoch: u64, steps: i8, now: Instant) -> Intent {
     }
 }
 #[test]
-fn wheel_repeats_are_bounded_and_target_is_bound_to_gesture() {
+fn scroll_repeats_are_bounded_and_target_is_bound_to_gesture() {
     let now = Instant::now();
     let state = Mutex::new(Shared {
         last_epoch: Some(1),
@@ -148,7 +148,7 @@ fn an_error_stops_the_gesture_and_reports_once() {
     assert!(state.lock().unwrap().notice.is_none());
 }
 #[test]
-fn cancellation_during_focus_read_never_sends_wheel() {
+fn cancellation_during_focus_read_never_sends_scroll() {
     let now = Instant::now();
     let state = Mutex::new(Shared {
         last_epoch: Some(1),
@@ -251,52 +251,246 @@ fn repeated_axis_samples_keep_the_gesture_identity() {
     }
 }
 
-#[test]
-fn socket_backend_selects_focus_and_sends_guarded_wheel_steps() {
+fn pane_reply(offset: u64, max: u64) -> serde_json::Value {
+    serde_json::json!({"type":"pane_info", "pane":{
+        "pane_id":"selected", "focused":true,
+        "scroll":{"offset_from_bottom":offset,"max_offset_from_bottom":max,"viewport_rows":24}
+    }})
+}
+
+/// The fixture records requests and stops when the synchronous client returns.
+/// It never waits for an expected request that a refusing client need not send.
+fn with_backend<R>(
+    replies: Vec<serde_json::Value>,
+    run: impl FnOnce(&mut SocketBackend) -> R,
+) -> (R, Vec<serde_json::Value>) {
     use std::io::{BufRead, BufReader, Write};
     use std::os::unix::net::UnixListener;
-    let dir = std::env::temp_dir().join(format!("gamepad-wheel-contract-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let path = dir.join("rpc.sock");
+    use std::sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc,
+    };
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let path = std::env::temp_dir().join(format!(
+        "scroll-history-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
     let listener = UnixListener::bind(&path).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let stopped = Arc::new(AtomicBool::new(false));
+    let stop = stopped.clone();
     let thread = std::thread::spawn(move || {
-        for expected in ["pane.list", "pane.scroll_wheel", "pane.scroll_wheel"] {
-            let (mut socket, _) = listener.accept().unwrap();
-            let mut line = String::new();
-            BufReader::new(&mut socket).read_line(&mut line).unwrap();
-            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
-            assert_eq!(request["method"], expected);
-            let result = if expected == "pane.list" {
-                serde_json::json!({"type":"pane_list", "panes":[
-                    {"pane_id":"background","focused":false}, {"pane_id":"selected","focused":true}
-                ]})
-            } else {
-                assert_eq!(request["params"]["pane_id"], "selected");
-                assert_eq!(request["params"]["focused_only"], true);
-                match request["params"]["direction"].as_str().unwrap() {
-                    "up" => assert_eq!(request["params"]["lines"], 3),
-                    "down" => assert_eq!(request["params"]["lines"], 1),
-                    other => panic!("unexpected direction {other}"),
+        let mut requests = Vec::new();
+        while !stop.load(Ordering::SeqCst) {
+            let (mut socket, _) = match listener.accept() {
+                Ok(pair) => pair,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(1));
+                    continue;
                 }
-                serde_json::json!({"type":"ok"})
+                Err(error) => panic!("accept: {error}"),
             };
-            writeln!(
+            socket.set_nonblocking(false).unwrap();
+            let _ = socket.set_read_timeout(Some(Duration::from_secs(1)));
+            let mut line = String::new();
+            if BufReader::new(&mut socket)
+                .read_line(&mut line)
+                .unwrap_or(0)
+                == 0
+            {
+                continue;
+            }
+            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+            let result = replies
+                .get(requests.len())
+                .cloned()
+                .unwrap_or(serde_json::json!({"type":"unexpected"}));
+            let _ = writeln!(
                 socket,
                 "{}",
-                serde_json::json!({"id":request["id"], "result":result})
-            )
-            .unwrap();
+                serde_json::json!({"id":request["id"],"result":result})
+            );
+            requests.push(request);
         }
+        requests
     });
-    let mut backend = SocketBackend {
+    let answer = run(&mut SocketBackend {
         path: Some(path.clone()),
-    };
-    assert_eq!(backend.focused().unwrap(), "selected");
-    backend.scroll("selected", 3, &|| true).unwrap();
-    backend.scroll("selected", -1, &|| true).unwrap();
-    thread.join().unwrap();
+    });
+    stopped.store(true, Ordering::SeqCst);
+    let requests = thread.join().unwrap();
     std::fs::remove_file(path).unwrap();
-    std::fs::remove_dir(dir).unwrap();
+    (answer, requests)
+}
+
+#[test]
+fn socket_backend_binds_only_the_selected_pane() {
+    let (result, requests) = with_backend(
+        vec![serde_json::json!({"type":"pane_list", "panes":[
+            {"pane_id":"background","focused":false},{"pane_id":"selected","focused":true}
+        ]})],
+        |backend| backend.focused(),
+    );
+    assert_eq!(result, Ok("selected".into()));
+    assert_eq!(requests[0]["method"], "pane.list");
+    assert_eq!(requests[0]["params"], serde_json::json!({}));
+}
+
+#[test]
+fn socket_backend_uses_fresh_offsets_for_up_and_down() {
+    let (result, requests) = with_backend(
+        vec![
+            pane_reply(4, 20),
+            pane_reply(7, 20),
+            pane_reply(12, 20),
+            pane_reply(11, 20),
+        ],
+        |backend| {
+            backend.scroll("selected", 3, &|| true)?;
+            backend.scroll("selected", -1, &|| true)
+        },
+    );
+    assert_eq!(result, Ok(()));
+    assert_eq!(
+        requests
+            .iter()
+            .map(|r| r["method"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["pane.get", "pane.scroll", "pane.get", "pane.scroll"]
+    );
+    assert_eq!(
+        requests[0]["params"],
+        serde_json::json!({"pane_id":"selected"})
+    );
+    assert_eq!(
+        requests[1]["params"],
+        serde_json::json!({"pane_id":"selected","offset_from_bottom":7})
+    );
+    assert_eq!(
+        requests[3]["params"],
+        serde_json::json!({"pane_id":"selected","offset_from_bottom":11})
+    );
+}
+
+#[test]
+fn scrollback_updates_clamp_without_overflow_or_underflow() {
+    for (offset, max, steps, next) in [
+        (9, 10, 3, 10),
+        (1, 10, -3, 0),
+        (u64::MAX - 1, u64::MAX, 3, u64::MAX),
+    ] {
+        let (result, requests) = with_backend(
+            vec![pane_reply(offset, max), pane_reply(next, max)],
+            |backend| backend.scroll("selected", steps, &|| true),
+        );
+        assert_eq!(result, Ok(()));
+        assert_eq!(requests[1]["params"]["offset_from_bottom"], next);
+    }
+}
+
+#[test]
+fn scrollback_boundaries_do_not_send_redundant_updates() {
+    for (offset, steps) in [(10, 3), (0, -3)] {
+        let (result, requests) = with_backend(vec![pane_reply(offset, 10)], |backend| {
+            backend.scroll("selected", steps, &|| true)
+        });
+        assert_eq!(result, Ok(()));
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0]["method"], "pane.get");
+    }
+}
+
+#[test]
+fn no_history_and_invalid_metrics_refuse_without_mutation() {
+    use serde_json::json;
+    let mut cases = vec![
+        (pane_reply(0, 0), "No terminal scrollback"),
+        (pane_reply(11, 10), "Invalid scroll metrics"),
+    ];
+    for metrics in [
+        json!(null),
+        json!({}),
+        json!({"offset_from_bottom":-1,"max_offset_from_bottom":10}),
+        json!({"offset_from_bottom":0,"max_offset_from_bottom":"10"}),
+    ] {
+        let mut reply = pane_reply(0, 10);
+        reply["pane"]["scroll"] = metrics;
+        cases.push((reply, "Invalid scroll metrics"));
+    }
+    for (reply, expected) in cases {
+        let (result, requests) = with_backend(vec![reply], |backend| {
+            backend.scroll("selected", 1, &|| true)
+        });
+        assert!(result.unwrap_err().contains(expected));
+        assert_eq!(requests.len(), 1);
+    }
+}
+
+#[test]
+fn stale_focus_wrong_identity_and_malformed_pane_results_refuse() {
+    use serde_json::json;
+    let mut not_focused = pane_reply(4, 10);
+    not_focused["pane"]["focused"] = json!(false);
+    let mut other = pane_reply(4, 10);
+    other["pane"]["pane_id"] = json!("other");
+    for (reply, expected) in [
+        (not_focused, "stale_pane_target"),
+        (other, "Unexpected scroll pane"),
+        (json!({"type":"wrong"}), "Unexpected pane info response"),
+        (json!({"type":"pane_info"}), "Unexpected scroll pane"),
+        (
+            json!({"type":"pane_info","pane":{"pane_id":"selected"}}),
+            "stale_pane_target",
+        ),
+    ] {
+        let (result, requests) = with_backend(vec![reply], |backend| {
+            backend.scroll("selected", 1, &|| true)
+        });
+        assert!(result.unwrap_err().contains(expected));
+        assert_eq!(requests.len(), 1);
+    }
+}
+
+#[test]
+fn scroll_response_must_identify_the_same_pane_and_valid_metrics() {
+    use serde_json::json;
+    let mut other = pane_reply(5, 10);
+    other["pane"]["pane_id"] = json!("other");
+    let mut invalid = pane_reply(5, 10);
+    invalid["pane"]["scroll"] = json!(null);
+    for reply in [
+        json!({"type":"ok"}),
+        json!({"type":"pane_info"}),
+        other,
+        invalid,
+        pane_reply(11, 10),
+    ] {
+        let (result, requests) = with_backend(vec![pane_reply(4, 10), reply], |backend| {
+            backend.scroll("selected", 1, &|| true)
+        });
+        assert!(result.is_err());
+        assert_eq!(requests.len(), 2);
+    }
+}
+
+#[test]
+fn cancelled_gesture_before_read_or_after_lookup_sends_no_update() {
+    use std::cell::Cell;
+    let mut backend = SocketBackend {
+        path: Some("/nonexistent/cancelled-scrollback".into()),
+    };
+    assert_eq!(backend.scroll("selected", 1, &|| false), Ok(()));
+    let calls = Cell::new(0);
+    let (result, requests) = with_backend(vec![pane_reply(4, 10)], |backend| {
+        backend.scroll("selected", 1, &|| {
+            calls.set(calls.get() + 1);
+            calls.get() <= 2
+        })
+    });
+    assert_eq!(result, Ok(()));
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0]["method"], "pane.get");
 }
 
 #[test]
@@ -314,10 +508,10 @@ fn unsupported_and_stale_errors_have_short_specific_notices() {
     for (error, expected) in [
         (
             format!(
-                "unknown variant `pane.scroll_wheel`, expected {}",
+                "unknown variant `pane.scroll`, expected {}",
                 "known_method,".repeat(1000)
             ),
-            "This Herdr build does not support joystick scrolling",
+            "This Herdr build does not expose terminal scrollback",
         ),
         ("stale_pane_target".into(), "Pane focus changed"),
         ("unavailable".repeat(1000), "Joystick scrolling stopped"),
@@ -367,7 +561,7 @@ fn backend_reply(result: serde_json::Value, focused: bool) -> Result<String, Str
     use std::sync::atomic::{AtomicUsize, Ordering};
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     let path = std::env::temp_dir().join(format!(
-        "gamepad-wheel-reply-{}-{}.sock",
+        "gamepad-scrollback-reply-{}-{}.sock",
         std::process::id(),
         NEXT.fetch_add(1, Ordering::SeqCst)
     ));
@@ -408,7 +602,6 @@ fn missing_or_invalid_focus_and_unexpected_success_are_rejected() {
         assert!(backend_reply(result, true).is_err());
     }
     assert!(backend_reply(json!({"type":"pane_list"}), false).is_err());
-    assert_eq!(backend_reply(json!({"type":"ok"}), false).unwrap(), "ok");
 }
 
 #[test]
