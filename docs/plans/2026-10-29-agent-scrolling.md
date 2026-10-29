@@ -38,5 +38,8 @@ Automated socket fixtures prove routing and suppression, not application scrolli
 
 ## Fable code-review follow-up
 - Reproduced and fixed host-history interruption when agent metadata changes: only agent-input gestures require the full agent/session binding; all gestures retain terminal binding and their starting route.
-- Reproduced and fixed misleading unsupported-method notices: RPC errors include the actual method and notices preserve it with bounded length.
+- Reproduced and fixed misleading unsupported-method notices: Herdr error replies include the actual method and notices preserve it with bounded length.
 - The settings-only commit is not being shipped alone; backend wiring is committed in the same feature branch before push.
+
+## Final verification
+391 unit tests and four integration tests passed; one existing live-device test remains ignored. The release binary builds successfully. All 44 initial backend/worker checks, eight settings checks and six review-fix mutation checks were caught and restored. Both Fable5.1 code reviews completed with their end marker. The final review found no blocking defect; transport errors retain their general diagnostics, and newly arriving agent session metadata may conservatively stop an agent gesture until recentered. Actual app/controller acceptance remains pending; PR15 stays draft.

@@ -129,6 +129,7 @@ agent_pages = true
 Agent scrolling requires the application's page keys to scroll its conversation.
 Classic renderers and custom keybindings may behave differently; leave it off there.
 Detected dialogs, uncertain agent state, and changes of pane or agent stop the gesture.
+An agent reporting its session ID during a gesture can also stop it; center the stick and retry.
 Detection is best-effort: an undetected dialog or a change between checking and sending
 can still receive a page key. No arrows, Enter, mouse bytes, or automatic viewer toggles
 are sent. If the host view was scrolled up, agent scrolling first returns it to the
